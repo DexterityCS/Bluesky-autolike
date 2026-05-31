@@ -592,6 +592,10 @@
         <span class="schedule-label">Max daily actions</span>
         <span class="schedule-time">~150 likes / ~150 follows</span>
       </div>
+      <div style="margin-top: 16px; border-top: 1px solid var(--border); padding-top: 16px;">
+        <div style="font-size:10px; letter-spacing:3px; color:var(--muted); text-transform:uppercase; margin-bottom:10px;">// Upcoming Runs (Your Local Time)</div>
+        <div id="upcoming-runs"></div>
+      </div>
     </div>
   </div>
 
@@ -661,6 +665,53 @@
     document.getElementById("remember-token").checked = false;
     log("Token cleared from local storage.", "warn");
   }
+
+  // ── Upcoming runs ─────────────────────────────────────────
+  function renderUpcomingRuns() {
+    const container = document.getElementById("upcoming-runs");
+    const now = new Date();
+    const runs = [];
+
+    // Cron: 0 */4 * * * — runs at 00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC
+    const utcHours = [0, 4, 8, 12, 16, 20];
+
+    for (let dayOffset = 0; dayOffset <= 1; dayOffset++) {
+      for (const hour of utcHours) {
+        const run = new Date(now);
+        run.setUTCDate(run.getUTCDate() + dayOffset);
+        run.setUTCHours(hour, 0, 0, 0);
+        if (run > now) runs.push(run);
+        if (runs.length >= 6) break;
+      }
+      if (runs.length >= 6) break;
+    }
+
+    const html = runs.map((run, i) => {
+      const isNext = i === 0;
+      const diffMs = run - now;
+      const diffH  = Math.floor(diffMs / 3600000);
+      const diffM  = Math.floor((diffMs % 3600000) / 60000);
+      const timeStr = run.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const dateStr = run.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+      const countdown = diffH > 0 ? `in ${diffH}h ${diffM}m` : `in ${diffM}m`;
+
+      return `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);${i === runs.length-1 ? 'border-bottom:none;' : ''}">
+          <div style="display:flex;align-items:center;gap:10px;">
+            ${isNext ? `<div style="width:6px;height:6px;background:var(--green);border-radius:50%;animation:pulse 2s infinite;flex-shrink:0;"></div>` : `<div style="width:6px;height:6px;background:var(--border);border-radius:50%;flex-shrink:0;"></div>`}
+            <span style="font-size:12px;color:${isNext ? '#fff' : 'var(--muted)'};">${dateStr} — ${timeStr}</span>
+          </div>
+          <span style="font-size:11px;color:${isNext ? 'var(--green)' : 'var(--accent)'};">${isNext ? '● NEXT — ' : ''}${countdown}</span>
+        </div>`;
+    }).join("");
+
+    container.innerHTML = html;
+
+    // Refresh countdown every minute
+    setTimeout(renderUpcomingRuns, 60000);
+  }
+
+  renderUpcomingRuns();
 
   function clearLog() {
     document.getElementById("log").innerHTML = "";
