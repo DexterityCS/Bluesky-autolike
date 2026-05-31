@@ -32,7 +32,7 @@ jobs:
       - name: Debug secrets
         run: |
           echo "HANDLE is set: ${{ secrets.BLUESKY_HANDLE != '' }}"
-          echo "PASSWORD is set: ${{ secrets.BLUESKY_APP_PASSWORD != '' }}"
+          echo "PASSWORD is set: ${{ secrets.BLUESKY_PASSWORD != '' }}"
 
       - name: Run bot
         env:
