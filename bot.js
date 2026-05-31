@@ -149,7 +149,20 @@ async function run() {
   }
 
   console.log(`\n✅ Run complete — ${totalLikes} likes, ${totalFollows} follows`);
-  console.log(JSON.stringify({ likes: totalLikes, follows: totalFollows, timestamp: new Date().toISOString() }));
+
+  // Update cumulative stats.json
+  const fs = require("fs");
+  const statsPath = "stats.json";
+  let stats = { totalLikes: 0, totalFollows: 0, runs: 0, lastRun: null };
+  if (fs.existsSync(statsPath)) {
+    try { stats = JSON.parse(fs.readFileSync(statsPath, "utf8")); } catch {}
+  }
+  stats.totalLikes   = (stats.totalLikes || 0) + totalLikes;
+  stats.totalFollows = (stats.totalFollows || 0) + totalFollows;
+  stats.runs         = (stats.runs || 0) + 1;
+  stats.lastRun      = new Date().toISOString();
+  fs.writeFileSync(statsPath, JSON.stringify(stats, null, 2));
+  console.log(`📊 Cumulative — ${stats.totalLikes} likes, ${stats.totalFollows} follows across ${stats.runs} runs`);
 }
 
 run().catch((err) => {
