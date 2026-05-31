@@ -3,7 +3,7 @@
 Automatically likes posts tagged **#CS2** and **#CounterStrike** on Bluesky and follows their authors. Runs every 4 hours via GitHub Actions. Includes a GitHub Pages dashboard for manual triggers.
 
 ## Features
-- Searches #CS2 and #CounterStrike posts
+- Searches for search terms you specify 
 - Likes posts and follows authors automatically
 - Skips accounts you already follow
 - Moderate pace: 20–30 actions per run (rate-limit safe)
