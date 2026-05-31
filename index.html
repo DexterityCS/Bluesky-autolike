@@ -521,7 +521,7 @@
         <button class="btn-trigger" id="btn-run" onclick="triggerRun()">
           <span id="btn-label">▶ Run Bot Now</span>
         </button>
-        <button class="btn-secondary" onclick="openActions()">View Runs ↗</button>
+        <button class="btn-secondary" onclick="clearToken()">Clear Token</button>
       </div>
     </div>
   </div>
@@ -587,6 +587,9 @@
   let sessionStats = JSON.parse(localStorage.getItem("bsky_bot_stats") || '{"likes":0,"follows":0,"lastRun":null}');
   renderStats();
 
+  // load saved token
+  let savedToken = localStorage.getItem("bsky_bot_gh_token") || "";
+
   function renderStats() {
     document.getElementById("stat-likes").textContent = sessionStats.likes || "0";
     document.getElementById("stat-follows").textContent = sessionStats.follows || "0";
@@ -605,6 +608,12 @@
     line.innerHTML = `<span class="log-time">${now}</span><span class="log-msg ${type}">${msg}</span>`;
     area.appendChild(line);
     area.scrollTop = area.scrollHeight;
+  }
+
+  function clearToken() {
+    localStorage.removeItem("bsky_bot_gh_token");
+    savedToken = "";
+    log("Token cleared from local storage.", "warn");
   }
 
   function clearLog() {
@@ -626,12 +635,18 @@
 
     log("Requesting manual run via GitHub Actions...", "info");
 
-    // Prompt for GitHub PAT (needed for workflow_dispatch)
-    const token = prompt("Enter your GitHub Personal Access Token (needs 'actions:write' scope).\n\nCreate one at: github.com/settings/tokens");
+    // Use saved token or prompt
+    let token = savedToken;
     if (!token) {
-      log("Cancelled — no token provided.", "warn");
-      reset();
-      return;
+      token = prompt("Enter your GitHub Personal Access Token (needs 'actions:write' scope).\n\nCreate one at: github.com/settings/tokens\n\nIt will be saved locally so you won't be asked again.");
+      if (!token) {
+        log("Cancelled — no token provided.", "warn");
+        reset();
+        return;
+      }
+      savedToken = token;
+      localStorage.setItem("bsky_bot_gh_token", token);
+      log("Token saved to local storage.", "info");
     }
 
     try {
