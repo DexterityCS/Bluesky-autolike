@@ -2,12 +2,14 @@ name: Bluesky CS2 Auto-Liker/Follower
 
 on:
   schedule:
-    - cron: "0 */4 * * *"  # every 4 hours
-  workflow_dispatch:         # manual trigger from GitHub UI or dashboard
+    - cron: "0 */4 * * *"
+  workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repo
@@ -18,8 +20,21 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Debug secrets
+        run: |
+          echo "HANDLE is set: ${{ secrets.BLUESKY_HANDLE != '' }}"
+          echo "PASSWORD is set: ${{ secrets.BLUESKY_APP_PASSWORD != '' }}"
+
       - name: Run bot
         env:
           BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
-          BLUESKY_PASSWORD: ${{ secrets.BLUESKY_PASSWORD }}
+          BLUESKY_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
         run: node bot.js
+
+      - name: Commit updated stats
+        run: |
+          git config user.name "dexterityCS Bot"
+          git config user.email "bot@dexteritycs"
+          git add stats.json
+          git diff --staged --quiet || git commit -m "📊 stats update — $(date +'%Y-%m-%d %H:%M') UTC"
+          git push
