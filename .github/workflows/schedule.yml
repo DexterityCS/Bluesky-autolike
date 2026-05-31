@@ -37,7 +37,7 @@ jobs:
       - name: Run bot
         env:
           BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
-          BLUESKY_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
+          BLUESKY_PASSWORD: ${{ secrets.BLUESKY_PASSWORD }}
           SEARCH_TERMS: ${{ github.event.inputs.search_terms || secrets.SEARCH_TERMS }}
           ACTIONS_PER_RUN: ${{ github.event.inputs.actions_per_run || '25' }}
         run: node bot.js
