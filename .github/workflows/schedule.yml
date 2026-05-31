@@ -4,6 +4,15 @@ on:
   schedule:
     - cron: "0 */4 * * *"
   workflow_dispatch:
+    inputs:
+      actions_per_run:
+        description: "Number of actions per run (likes + follows)"
+        required: false
+        default: "25"
+      search_terms:
+        description: "Comma-separated search terms (overrides SEARCH_TERMS secret)"
+        required: false
+        default: ""
 
 jobs:
   run-bot:
@@ -28,7 +37,9 @@ jobs:
       - name: Run bot
         env:
           BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
-          BLUESKY_PASSWORD: ${{ secrets.BLUESKY_PASSWORD }}
+          BLUESKY_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
+          SEARCH_TERMS: ${{ github.event.inputs.search_terms || secrets.SEARCH_TERMS }}
+          ACTIONS_PER_RUN: ${{ github.event.inputs.actions_per_run || '25' }}
         run: node bot.js
 
       - name: Commit updated stats
