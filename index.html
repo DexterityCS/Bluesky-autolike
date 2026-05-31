@@ -640,11 +640,13 @@
   }
 
   // load saved token into input on page load
-  const _savedToken = localStorage.getItem("bsky_bot_gh_token") || "";
-  if (_savedToken) {
-    document.getElementById("token-input").value = _savedToken;
-    document.getElementById("remember-token").checked = true;
-  }
+  document.addEventListener("DOMContentLoaded", () => {
+    const _savedToken = localStorage.getItem("bsky_bot_gh_token") || "";
+    if (_savedToken) {
+      document.getElementById("token-input").value = _savedToken;
+      document.getElementById("remember-token").checked = true;
+    }
+  });
 
   function clearToken() {
     localStorage.removeItem("bsky_bot_gh_token");
