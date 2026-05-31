@@ -612,22 +612,27 @@
   const ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions`;
   const DISPATCH_URL = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/${WORKFLOW_FILE}/dispatches`;
 
-  // load saved stats
-  let sessionStats = JSON.parse(localStorage.getItem("bsky_bot_stats") || '{"likes":0,"follows":0,"lastRun":null}');
-  renderStats();
+  const STATS_URL = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/main/stats.json`;
 
-  // load saved token
-  let savedToken = localStorage.getItem("bsky_bot_gh_token") || "";
-
-  function renderStats() {
-    document.getElementById("stat-likes").textContent = sessionStats.likes || "0";
-    document.getElementById("stat-follows").textContent = sessionStats.follows || "0";
-    if (sessionStats.lastRun) {
-      const d = new Date(sessionStats.lastRun);
-      document.getElementById("stat-lastrun").textContent = d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
-      document.getElementById("stat-lastrun-sub").textContent = d.toLocaleDateString();
+  // Fetch real stats from stats.json in the repo
+  async function fetchStats() {
+    try {
+      const res = await fetch(STATS_URL + "?t=" + Date.now());
+      if (!res.ok) return;
+      const data = await res.json();
+      document.getElementById("stat-likes").textContent = data.totalLikes ?? "0";
+      document.getElementById("stat-follows").textContent = data.totalFollows ?? "0";
+      if (data.lastRun) {
+        const d = new Date(data.lastRun);
+        document.getElementById("stat-lastrun").textContent = d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+        document.getElementById("stat-lastrun-sub").textContent = d.toLocaleDateString();
+      }
+    } catch (e) {
+      console.warn("Could not fetch stats.json:", e.message);
     }
   }
+
+  fetchStats();
 
   function log(msg, type = "") {
     const area = document.getElementById("log");
@@ -704,14 +709,9 @@
 
       if (res.status === 204) {
         log("✅ Run dispatched successfully!", "success");
-        log("Check GitHub Actions for live output →", "info");
-
-        // Optimistically update stats
-        sessionStats.likes += 22;
-        sessionStats.follows += 18;
-        sessionStats.lastRun = new Date().toISOString();
-        localStorage.setItem("bsky_bot_stats", JSON.stringify(sessionStats));
-        renderStats();
+        log("Stats will update once the run completes (~1 min).", "info");
+        // Re-fetch real stats after a delay to give the workflow time to finish
+        setTimeout(fetchStats, 90000);
       } else {
         const err = await res.json().catch(() => ({}));
         log(`❌ Failed (${res.status}): ${err.message || "Unknown error"}`, "error");
