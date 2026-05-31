@@ -2,7 +2,7 @@ name: Monthly Keep-Alive
 
 on:
   schedule:
-    - cron: "0 12 1 * *"  # 1st of every month at noon UTC
+    - cron: "0 12 1 * *"
   workflow_dispatch:
 
 jobs:
@@ -15,36 +15,34 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Update keep-alive timestamp in stats.json
+      - name: Update stats.json with keep-alive timestamp
         run: |
-          # Read existing stats.json or create default
           if [ -f stats.json ]; then
-            TOTAL_LIKES=$(cat stats.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('totalLikes',0))")
-            TOTAL_FOLLOWS=$(cat stats.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('totalFollows',0))")
-            RUNS=$(cat stats.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('runs',0))")
+            TOTAL_LIKES=$(python3 -c "import json; d=json.load(open('stats.json')); print(d.get('totalLikes',0))")
+            TOTAL_FOLLOWS=$(python3 -c "import json; d=json.load(open('stats.json')); print(d.get('totalFollows',0))")
+            RUNS=$(python3 -c "import json; d=json.load(open('stats.json')); print(d.get('runs',0))")
+            LAST_RUN=$(python3 -c "import json; d=json.load(open('stats.json')); print(d.get('lastRun','null'))")
           else
             TOTAL_LIKES=0
             TOTAL_FOLLOWS=0
             RUNS=0
+            LAST_RUN=null
           fi
-
-          # Write updated stats.json with keepalive timestamp
-          python3 -c "
-import json, datetime
-data = {
-  'totalLikes': int('$TOTAL_LIKES'),
-  'totalFollows': int('$TOTAL_FOLLOWS'),
-  'runs': int('$RUNS'),
-  'lastRun': open('stats.json').read() and json.load(open('stats.json')).get('lastRun') or None,
-  'keepalive': datetime.datetime.utcnow().isoformat() + 'Z'
-}
-print(json.dumps(data, indent=2))
-" > stats.json
+          KEEPALIVE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          echo "{" > stats.json
+          echo "  \"totalLikes\": $TOTAL_LIKES," >> stats.json
+          echo "  \"totalFollows\": $TOTAL_FOLLOWS," >> stats.json
+          echo "  \"runs\": $RUNS," >> stats.json
+          echo "  \"lastRun\": \"$LAST_RUN\"," >> stats.json
+          echo "  \"keepalive\": \"$KEEPALIVE\"" >> stats.json
+          echo "}" >> stats.json
 
       - name: Commit keep-alive
         run: |
+          TOTAL_LIKES=$(python3 -c "import json; d=json.load(open('stats.json')); print(d.get('totalLikes',0))")
+          TOTAL_FOLLOWS=$(python3 -c "import json; d=json.load(open('stats.json')); print(d.get('totalFollows',0))")
           git config user.name "dexterityCS Bot"
           git config user.email "bot@dexteritycs"
           git add stats.json
-          git commit -m "💓 keep-alive — $(date +'%B %Y') | $TOTAL_LIKES likes / $TOTAL_FOLLOWS follows total"
+          git commit -m "💓 keep-alive — $(date +'%B %Y') | ${TOTAL_LIKES} likes / ${TOTAL_FOLLOWS} follows total"
           git push
