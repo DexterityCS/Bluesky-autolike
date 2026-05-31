@@ -513,6 +513,36 @@
         </div>
       </div>
 
+      <!-- Token input -->
+      <div style="margin-bottom: 16px;">
+        <div class="config-key" style="margin-bottom: 8px;">GitHub Token</div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <input
+            id="token-input"
+            type="password"
+            placeholder="ghp_xxxxxxxxxxxxxxxx"
+            style="
+              flex: 1;
+              background: rgba(0,0,0,0.4);
+              border: 1px solid var(--border);
+              color: var(--text);
+              font-family: var(--font-mono);
+              font-size: 13px;
+              padding: 10px 14px;
+              outline: none;
+              transition: border-color 0.2s;
+            "
+            onfocus="this.style.borderColor='var(--accent)'"
+            onblur="this.style.borderColor='var(--border)'"
+          />
+          <button class="btn-secondary" style="padding: 10px 16px; white-space:nowrap;" onclick="clearToken()">Clear</button>
+        </div>
+        <label style="display: flex; align-items: center; gap: 8px; margin-top: 8px; cursor: pointer; user-select: none;">
+          <input type="checkbox" id="remember-token" style="accent-color: var(--accent); width:14px; height:14px;" />
+          <span style="font-size: 11px; color: var(--accent);">Remember on this device</span>
+        </label>
+      </div>
+
       <div class="progress-bar" style="margin-bottom: 16px;">
         <div class="progress-fill" id="progress"></div>
       </div>
@@ -521,7 +551,6 @@
         <button class="btn-trigger" id="btn-run" onclick="triggerRun()">
           <span id="btn-label">▶ Run Bot Now</span>
         </button>
-        <button class="btn-secondary" onclick="clearToken()">Clear Token</button>
       </div>
     </div>
   </div>
@@ -610,9 +639,17 @@
     area.scrollTop = area.scrollHeight;
   }
 
+  // load saved token into input on page load
+  const _savedToken = localStorage.getItem("bsky_bot_gh_token") || "";
+  if (_savedToken) {
+    document.getElementById("token-input").value = _savedToken;
+    document.getElementById("remember-token").checked = true;
+  }
+
   function clearToken() {
     localStorage.removeItem("bsky_bot_gh_token");
-    savedToken = "";
+    document.getElementById("token-input").value = "";
+    document.getElementById("remember-token").checked = false;
     log("Token cleared from local storage.", "warn");
   }
 
@@ -635,18 +672,21 @@
 
     log("Requesting manual run via GitHub Actions...", "info");
 
-    // Use saved token or prompt
-    let token = savedToken;
+    // Read token from input field
+    const token = document.getElementById("token-input").value.trim();
+    const remember = document.getElementById("remember-token").checked;
+
     if (!token) {
-      token = prompt("Enter your GitHub Personal Access Token (needs 'actions:write' scope).\n\nCreate one at: github.com/settings/tokens\n\nIt will be saved locally so you won't be asked again.");
-      if (!token) {
-        log("Cancelled — no token provided.", "warn");
-        reset();
-        return;
-      }
-      savedToken = token;
+      log("❌ No token entered — paste your GitHub PAT above.", "error");
+      reset();
+      return;
+    }
+
+    if (remember) {
       localStorage.setItem("bsky_bot_gh_token", token);
       log("Token saved to local storage.", "info");
+    } else {
+      localStorage.removeItem("bsky_bot_gh_token");
     }
 
     try {
