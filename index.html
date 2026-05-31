@@ -566,56 +566,6 @@
     </div>
   </div>
 
-  <!-- Setup Guide -->
-  <div class="panel">
-    <div class="panel-header">
-      <span class="panel-title">Setup Guide</span>
-    </div>
-    <div class="panel-body">
-      <div class="setup-steps">
-        <div class="setup-step">
-          <div class="step-num">01</div>
-          <div class="step-content">
-            <div class="step-title">Create a new GitHub repo</div>
-            <div class="step-desc">Push <code>bot.js</code>, <code>package.json</code>, and <code>.github/workflows/schedule.yml</code> to a new repo (can be private).</div>
-          </div>
-        </div>
-        <div class="setup-step">
-          <div class="step-num">02</div>
-          <div class="step-content">
-            <div class="step-title">Add Repository Secrets</div>
-            <div class="step-desc">Go to <strong>Settings → Secrets → Actions</strong> and add:<br/>
-              <code>BLUESKY_HANDLE</code> — your full handle e.g. <code>dexterity-cs.bsky.social</code><br/>
-              <code>BLUESKY_PASSWORD</code> — create an App Password at bsky.app → Settings → App Passwords
-            </div>
-            <a class="step-link" href="https://bsky.app/settings/app-passwords" target="_blank">bsky.app → App Passwords ↗</a>
-          </div>
-        </div>
-        <div class="setup-step">
-          <div class="step-num">03</div>
-          <div class="step-content">
-            <div class="step-title">Enable GitHub Actions</div>
-            <div class="step-desc">Go to <strong>Actions tab</strong> in your repo and enable workflows if prompted. The bot will run automatically every 4 hours.</div>
-          </div>
-        </div>
-        <div class="setup-step">
-          <div class="step-num">04</div>
-          <div class="step-content">
-            <div class="step-title">Host this dashboard on GitHub Pages</div>
-            <div class="step-desc">Add this <code>index.html</code> to the repo. Go to <strong>Settings → Pages</strong> and set source to <code>main</code> branch. Update the repo URL below in the JS config.</div>
-          </div>
-        </div>
-        <div class="setup-step">
-          <div class="step-num">05</div>
-          <div class="step-content">
-            <div class="step-title">Set your repo URL for manual triggers</div>
-            <div class="step-desc">Edit the <code>GITHUB_REPO</code> variable at the top of this page's script to match your GitHub username and repo name.</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <footer>
     <span>dexterityCS Automation Suite</span>
     <a href="https://twitch.tv/dexterity_cs" target="_blank">twitch.tv/dexterity_cs</a>
