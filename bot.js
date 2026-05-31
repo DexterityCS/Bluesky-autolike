@@ -2,8 +2,17 @@ const https = require("https");
 
 const BLUESKY_HANDLE = process.env.BLUESKY_HANDLE;
 const BLUESKY_PASSWORD = process.env.BLUESKY_PASSWORD;
-const ACTIONS_PER_RUN = 25; // moderate: 20-30
-const HASHTAGS = ["#CS2", "#CounterStrike"];
+const ACTIONS_PER_RUN = parseInt(process.env.ACTIONS_PER_RUN || "25");
+
+// Hashtags and keywords — customize via env vars or edit defaults here
+// SEARCH_TERMS env var: comma-separated list e.g. "CS2,#CounterStrike,#CS2clips,FPS"
+// Prefix with # for hashtag search, no prefix for keyword/freetext search
+const DEFAULT_TERMS = ["#CS2", "#CounterStrike", "#CounterStrike2", "#CS2clips", "CS2", "counter-strike"];
+const SEARCH_TERMS = process.env.SEARCH_TERMS
+  ? process.env.SEARCH_TERMS.split(",").map(s => s.trim()).filter(Boolean)
+  : DEFAULT_TERMS;
+
+const POSTS_PER_SEARCH = 100; // increased from 50
 
 function request(options, body = null) {
   return new Promise((resolve, reject) => {
@@ -61,9 +70,10 @@ async function getFollowing(did, token) {
   return following;
 }
 
-async function searchPosts(tag, token) {
-  const query = encodeURIComponent(tag);
-  const res = await apiRequest(`app.bsky.feed.searchPosts?q=${query}&limit=50`, "GET", null, token);
+async function searchPosts(term, token) {
+  // Bluesky search works for both hashtags (#CS2) and keywords (CS2) with same endpoint
+  const query = encodeURIComponent(term);
+  const res = await apiRequest(`app.bsky.feed.searchPosts?q=${query}&limit=${POSTS_PER_SEARCH}`, "GET", null, token);
   if (res.status !== 200) return [];
   return res.body.posts || [];
 }
@@ -110,10 +120,12 @@ async function run() {
   const actionsTarget = ACTIONS_PER_RUN;
   const seenDids = new Set();
 
-  for (const tag of HASHTAGS) {
+  console.log(`🔎 Search terms: ${SEARCH_TERMS.join(", ")}`);
+
+  for (const term of SEARCH_TERMS) {
     if (totalLikes + totalFollows >= actionsTarget) break;
-    console.log(`\n🔍 Searching ${tag}...`);
-    const posts = await searchPosts(tag, token);
+    console.log(`\n🔍 Searching "${term}"...`);
+    const posts = await searchPosts(term, token);
     console.log(`   Found ${posts.length} posts`);
 
     for (const post of posts) {
