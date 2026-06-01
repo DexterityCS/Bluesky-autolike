@@ -8,7 +8,7 @@ import fetch from "node-fetch";
 const {
   ANTHROPIC_API_KEY,
   BLUESKY_HANDLE,
-  BLUESKY_APP_PASSWORD,
+  BLUESKY_PASSWORD,
   RELEASE_NAME,
   RELEASE_BODY,
   RELEASE_URL,
@@ -31,7 +31,7 @@ const REPO_CONTEXT = {
 const repoContext = REPO_CONTEXT[REPO_NAME] || REPO_DESCRIPTION || "a Twitch stream tool";
 
 // Validate env
-const missing = ["ANTHROPIC_API_KEY","BLUESKY_HANDLE","BLUESKY_APP_PASSWORD"].filter(k => !process.env[k]);
+const missing = ["ANTHROPIC_API_KEY","BLUESKY_HANDLE","BLUESKY_PASSWORD"].filter(k => !process.env[k]);
 if (missing.length) {
   console.error("❌ Missing secrets:", missing.join(", "));
   console.error("   Repo → Settings → Secrets → Actions → New repository secret");
@@ -72,7 +72,7 @@ async function blueskyLogin() {
   const res = await fetch("https://bsky.social/xrpc/com.atproto.server.createSession", {
     method:  "POST",
     headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify({ identifier: BLUESKY_HANDLE, password: BLUESKY_APP_PASSWORD }),
+    body:    JSON.stringify({ identifier: BLUESKY_HANDLE, password: BLUESKY_PASSWORD }),
   });
   if (!res.ok) throw new Error(`Login failed: ${await res.text()}`);
   return await res.json();
