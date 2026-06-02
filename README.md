@@ -39,7 +39,7 @@ Go to **Settings → Pages**, set source to `main` branch, root folder.
 In `index.html`, update the top of the script:
 ```js
 const GITHUB_USER = "your-username";
-const GITHUB_REPO = "bluesky-cs2-bot";
+const GITHUB_REPO = "bluesky-autolike";
 ```
 
 ## Manual Trigger
