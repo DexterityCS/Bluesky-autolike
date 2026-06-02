@@ -466,7 +466,7 @@
 
   <!-- Stats -->
   <div class="section-label">// Session Stats</div>
-  <div class="stats-row" style="grid-template-columns: repeat(4, 1fr);">
+  <div class="stats-row" style="grid-template-columns: repeat(3, 1fr);">
     <div class="stat-card">
       <div class="stat-label">Likes Given</div>
       <div class="stat-value accent" id="stat-likes">—</div>
@@ -482,9 +482,21 @@
       <div class="stat-value yellow" id="stat-unfollows">—</div>
       <div class="stat-sub">cumulative</div>
     </div>
+  </div>
+  <div class="stats-row" style="grid-template-columns: repeat(3, 1fr); margin-top: 0;">
     <div class="stat-card">
+      <div class="stat-label">Replies Sent</div>
+      <div class="stat-value accent" id="stat-replies">—</div>
+      <div class="stat-sub">cumulative</div>
+    </div>
+    <div class="stat-card red">
+      <div class="stat-label">Follow-back Rate</div>
+      <div class="stat-value red" id="stat-followback">—</div>
+      <div class="stat-sub" id="stat-followback-sub">of follows returned</div>
+    </div>
+    <div class="stat-card yellow">
       <div class="stat-label">Last Run</div>
-      <div class="stat-value accent" style="font-size:18px; padding-top:8px;" id="stat-lastrun">Never</div>
+      <div class="stat-value yellow" style="font-size:18px; padding-top:8px;" id="stat-lastrun">Never</div>
       <div class="stat-sub" id="stat-lastrun-sub">no runs yet</div>
     </div>
   </div>
@@ -683,6 +695,18 @@
       document.getElementById("stat-likes").textContent = data.totalLikes ?? "0";
       document.getElementById("stat-follows").textContent = data.totalFollows ?? "0";
       document.getElementById("stat-unfollows").textContent = data.totalUnfollows ?? "0";
+      document.getElementById("stat-replies").textContent = data.totalReplies ?? "0";
+
+      // Follow-back rate
+      const fbr = data.followBackRate;
+      if (fbr && fbr.followed > 0) {
+        const rate = ((fbr.followedBack / fbr.followed) * 100).toFixed(1);
+        document.getElementById("stat-followback").textContent = `${rate}%`;
+        document.getElementById("stat-followback-sub").textContent = `${fbr.followedBack}/${fbr.followed} followed back`;
+      } else {
+        document.getElementById("stat-followback").textContent = "—";
+      }
+
       if (data.lastRun) {
         const d = new Date(data.lastRun);
         document.getElementById("stat-lastrun").textContent = d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
@@ -880,6 +904,21 @@
       if (res.status === 204) {
         log("✅ Run dispatched successfully!", "success");
         log("Stats will update once the run completes (~1 min).", "info");
+
+        // Lock button for 60s to prevent double-triggering
+        let countdown = 60;
+        const interval = setInterval(() => {
+          countdown--;
+          label.textContent = `⏳ Cooldown ${countdown}s`;
+          if (countdown <= 0) {
+            clearInterval(interval);
+            btn.disabled = false;
+            label.textContent = "▶ Run Bot Now";
+            progress.classList.remove("animating");
+            progress.style.width = "0%";
+          }
+        }, 1000);
+        return; // skip the reset() call below
         // Re-fetch real stats after a delay to give the workflow time to finish
         setTimeout(fetchStats, 90000);
       } else {
