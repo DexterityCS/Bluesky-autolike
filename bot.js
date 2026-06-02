@@ -419,6 +419,7 @@ function pruneLastLikedAt(stats) {
 }
 
 
+function recordFollowerCount(stats, count) {
   if (!stats.followerHistory) stats.followerHistory = [];
   const today = new Date().toISOString().slice(0, 10);
   const last  = stats.followerHistory[stats.followerHistory.length - 1];
