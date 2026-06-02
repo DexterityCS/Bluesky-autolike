@@ -111,15 +111,6 @@ async function searchPosts(term, token) {
   return res.body.posts || [];
 }
 
-async function isAlreadyLiked(uri, token) {
-  const res = await apiRequest(
-    `app.bsky.feed.getPosts?uris=${encodeURIComponent(uri)}`,
-    "GET", null, token
-  );
-  if (res.status !== 200 || !res.body.posts?.length) return false;
-  return !!res.body.posts[0].viewer?.like;
-}
-
 async function likePost(uri, cid, did, token) {
   const res = await apiRequest("com.atproto.repo.createRecord", "POST", {
     repo: did,
@@ -213,6 +204,14 @@ async function run() {
     }
   }
 
+  const fs = require("fs");
+  const statsPath = "stats.json";
+  let stats = { totalLikes: 0, totalFollows: 0, totalUnfollows: 0, runs: 0, lastRun: null, lastLikedAt: {} };
+  if (fs.existsSync(statsPath)) {
+    try { stats = { ...stats, ...JSON.parse(fs.readFileSync(statsPath, "utf8")) }; } catch {}
+  }
+  if (!stats.lastLikedAt) stats.lastLikedAt = {};
+
   console.log(`\n📋 ${latestPostByAuthor.size} unique authors found`);
 
   const likedThisRun = new Set();
@@ -225,17 +224,21 @@ async function run() {
     if (!uri || !cid) continue;
     if (likedThisRun.has(authorDid)) continue;
 
-    const alreadyLiked = await isAlreadyLiked(uri, token);
-    if (!alreadyLiked) {
+    const postDate = new Date(post.indexedAt || post.record?.createdAt || 0);
+    const lastLiked = stats.lastLikedAt[authorDid] ? new Date(stats.lastLikedAt[authorDid]) : null;
+
+    // Skip if this post is not newer than the last time we liked this author
+    if (lastLiked && postDate <= lastLiked) {
+      console.log(`   ⏭️  No new posts from @${post.author?.handle} — skipping`);
+      likedThisRun.add(authorDid);
+    } else {
       const liked = await likePost(uri, cid, did, token);
       if (liked) {
         totalLikes++;
         likedThisRun.add(authorDid);
+        stats.lastLikedAt[authorDid] = postDate.toISOString();
         console.log(`   ❤️  Liked post by @${post.author?.handle}`);
       }
-    } else {
-      likedThisRun.add(authorDid);
-      console.log(`   ⏭️  Already liked @${post.author?.handle} — skipping`);
     }
 
     if (!following.has(authorDid)) {
@@ -252,12 +255,6 @@ async function run() {
 
   console.log(`\n✅ Run complete — ${totalLikes} likes, ${totalFollows} follows, ${totalUnfollows} unfollows`);
 
-  const fs = require("fs");
-  const statsPath = "stats.json";
-  let stats = { totalLikes: 0, totalFollows: 0, totalUnfollows: 0, runs: 0, lastRun: null };
-  if (fs.existsSync(statsPath)) {
-    try { stats = JSON.parse(fs.readFileSync(statsPath, "utf8")); } catch {}
-  }
   stats.totalLikes     = (stats.totalLikes || 0) + totalLikes;
   stats.totalFollows   = (stats.totalFollows || 0) + totalFollows;
   stats.totalUnfollows = (stats.totalUnfollows || 0) + totalUnfollows;
