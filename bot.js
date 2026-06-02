@@ -25,6 +25,16 @@ const REPLY_COOLDOWN_DAYS  = 7;    // don't reply to same account more than once
 const MIN_REPLY_TEXT_LEN   = 30;   // minimum post text length to attempt a reply
 const DISCORD_WEBHOOK_URL  = process.env.DISCORD_WEBHOOK_URL || null; // optional run summary
 
+// Follower milestones to celebrate
+const FOLLOWER_MILESTONES  = [100, 250, 500, 1000, 2500, 5000, 10000];
+
+// Weekly summary — posts every Monday
+const WEEKLY_SUMMARY_DAY   = 1; // 0=Sun, 1=Mon
+
+// Account protection
+const SPIKE_THRESHOLD      = 3;   // flag run if actions are 3x the average
+const BLOCK_LIST_PATH      = "blocklist.json";
+
 const DEFAULT_TERMS = ["#CS2", "#CounterStrike", "#CounterStrike2", "#CS2clips", "CS2", "counter-strike"];
 const SEARCH_TERMS  = process.env.SEARCH_TERMS
   ? process.env.SEARCH_TERMS.split(",").map(s => s.trim()).filter(Boolean)
@@ -44,6 +54,10 @@ function loadStats() {
     termPerformance: {},
     filteredCount: 0,
     replyEngagement: { sent: 0, gotLiked: 0, gotReplied: 0 },
+    milestonesCelebrated: [],
+    lastWeeklySummary: null,
+    runHistory: [],          // last 10 runs for dashboard table
+    actionsHistory: [],      // recent run action counts for spike detection
   };
   if (!fs.existsSync(STATS_PATH)) return defaults;
   try { return { ...defaults, ...JSON.parse(fs.readFileSync(STATS_PATH, "utf8")) }; }
@@ -564,6 +578,122 @@ async function checkReplyEngagement(did, token, stats) {
   }
 }
 
+// ── Block list ────────────────────────────────────────────
+function loadBlockList() {
+  if (!fs.existsSync(BLOCK_LIST_PATH)) return new Set();
+  try { return new Set(JSON.parse(fs.readFileSync(BLOCK_LIST_PATH, "utf8"))); }
+  catch { return new Set(); }
+}
+
+function saveBlockList(blockList) {
+  fs.writeFileSync(BLOCK_LIST_PATH, JSON.stringify([...blockList], null, 2));
+}
+
+function addToBlockList(did, handle) {
+  const list = loadBlockList();
+  list.add(did);
+  saveBlockList(list);
+  console.log(`🚫 Added @${handle} to block list`);
+}
+
+// ── Spike detector ────────────────────────────────────────
+function checkForSpike(stats, actionsThisRun) {
+  const history = stats.actionsHistory || [];
+  if (history.length < 3) return false; // not enough data
+
+  const avg = history.reduce((a, b) => a + b, 0) / history.length;
+  if (avg === 0) return false;
+
+  const isSpike = actionsThisRun > avg * SPIKE_THRESHOLD;
+  if (isSpike) {
+    console.warn(`⚠️  Spike detected — ${actionsThisRun} actions vs avg ${avg.toFixed(1)}. Halting run.`);
+  }
+  return isSpike;
+}
+
+function recordRunActions(stats, count) {
+  if (!stats.actionsHistory) stats.actionsHistory = [];
+  stats.actionsHistory.push(count);
+  if (stats.actionsHistory.length > 20) stats.actionsHistory.shift();
+}
+
+// ── Run history ───────────────────────────────────────────
+function recordRunHistory(stats, entry) {
+  if (!stats.runHistory) stats.runHistory = [];
+  stats.runHistory.unshift(entry); // newest first
+  if (stats.runHistory.length > 10) stats.runHistory.pop();
+}
+
+
+async function checkAndPostMilestones(followerCount, stats, token, did) {
+  if (!stats.milestonesCelebrated) stats.milestonesCelebrated = [];
+  for (const milestone of FOLLOWER_MILESTONES) {
+    if (followerCount >= milestone && !stats.milestonesCelebrated.includes(milestone)) {
+      console.log(`🎉 Milestone reached: ${milestone} followers!`);
+      let postText;
+      if (ANTHROPIC_API_KEY) {
+        const body = JSON.stringify({
+          model: "claude-opus-4-5", max_tokens: 200,
+          system: "You are Dexterity (@dexteritycs.bsky.social), a CS2 streamer. Write a short genuine excited Bluesky post celebrating a follower milestone. Sound like a real streamer — grateful but not cringe. Include the milestone number. Max 250 chars. Output only the post text.",
+          messages: [{ role: "user", content: `Write a Bluesky post celebrating hitting ${milestone} followers. Keep it real and personal.` }]
+        });
+        const res = await request({
+          hostname: "api.anthropic.com", path: "/v1/messages", method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+        }, body);
+        if (res.status === 200 && res.body.content?.[0]?.text) postText = res.body.content[0].text.trim();
+      }
+      if (!postText) postText = `🎉 Just hit ${milestone.toLocaleString()} followers on Bluesky! Thank you all so much — every follow means a lot. More CS2 content coming! #CS2 #Twitch`;
+      const res = await apiRequest("com.atproto.repo.createRecord", "POST", {
+        repo: did, collection: "app.bsky.feed.post",
+        record: { $type: "app.bsky.feed.post", text: postText, createdAt: new Date().toISOString() },
+      }, token);
+      if (res.status === 200) {
+        stats.milestonesCelebrated.push(milestone);
+        console.log(`   ✅ Milestone post published: "${postText}"`);
+      }
+      await sleep(1000);
+    }
+  }
+}
+
+// ── Weekly summary post ───────────────────────────────────
+async function checkAndPostWeeklySummary(stats, token, did, followerCount) {
+  const now   = new Date();
+  const today = now.toISOString().slice(0, 10);
+  if (now.getUTCDay() !== WEEKLY_SUMMARY_DAY) return;
+  if (stats.lastWeeklySummary === today) return;
+
+  const history   = stats.followerHistory || [];
+  const weekAgo   = history.find(h => { const d = (new Date(today) - new Date(h.date)) / 86400000; return d >= 6 && d <= 8; });
+  const weeklyGain = weekAgo ? followerCount - weekAgo.count : 0;
+  const fbRate    = stats.followBackRate?.followed > 0
+    ? ((stats.followBackRate.followedBack / stats.followBackRate.followed) * 100).toFixed(1) : "0";
+
+  let postText;
+  if (ANTHROPIC_API_KEY) {
+    const body = JSON.stringify({
+      model: "claude-opus-4-5", max_tokens: 250,
+      system: "You are Dexterity (@dexteritycs.bsky.social), a CS2 streamer. Write a weekly stats recap post for Bluesky. Sound natural and conversational. Max 280 chars. Output only the post text.",
+      messages: [{ role: "user", content: `Weekly Bluesky recap:\n- New followers: +${weeklyGain}\n- Total: ${followerCount}\n- Likes given: ${stats.totalLikes || 0}\n- Follow-back rate: ${fbRate}%\nInclude CS2/streaming hashtags.` }]
+    });
+    const res = await request({
+      hostname: "api.anthropic.com", path: "/v1/messages", method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+    }, body);
+    if (res.status === 200 && res.body.content?.[0]?.text) postText = res.body.content[0].text.trim();
+  }
+  if (!postText) postText = `📊 Weekly recap: +${weeklyGain} followers (${followerCount} total), ${stats.totalLikes || 0} likes given, ${fbRate}% follow-back rate. Growing the CS2 community! #CS2 #Twitch`;
+
+  const res = await apiRequest("com.atproto.repo.createRecord", "POST", {
+    repo: did, collection: "app.bsky.feed.post",
+    record: { $type: "app.bsky.feed.post", text: postText, createdAt: new Date().toISOString() },
+  }, token);
+  if (res.status === 200) {
+    stats.lastWeeklySummary = today;
+    console.log(`📊 Weekly summary posted: "${postText}"`);
+  }
+}
 
 async function run() {
   if (!BLUESKY_HANDLE || !BLUESKY_PASSWORD) {
@@ -597,6 +727,7 @@ async function run() {
   console.log(`🎯 Actions this run: ${actionsTarget} (daily: ${dailyUsed}/${DAILY_ACTION_CAP}, hourly: ${hourlyUsed}/${HOURLY_LIMIT})`);
 
   const { token, did } = await login();
+  const blockList       = loadBlockList();
   const following       = await getFollowing(did, token);
   const { followers, count: followerCount } = await getFollowers(did, token);
 
@@ -606,6 +737,12 @@ async function run() {
 
   // Check reply engagement
   await checkReplyEngagement(did, token, stats);
+
+  // Check follower milestones
+  await checkAndPostMilestones(followerCount, stats, token, did);
+
+  // Check weekly summary
+  await checkAndPostWeeklySummary(stats, token, did, followerCount);
 
   // Record follower count for growth velocity
   recordFollowerCount(stats, followerCount);
@@ -662,6 +799,12 @@ async function run() {
     const cid = post.cid;
     if (!uri || !cid) continue;
     if (likedThisRun.has(authorDid)) continue;
+
+    // Block list check
+    if (blockList.has(authorDid)) {
+      likedThisRun.add(authorDid);
+      continue;
+    }
 
     // Quality filters
     const { pass, reason } = await passesQualityFilters(authorDid, post, token, stats);
@@ -780,6 +923,16 @@ async function run() {
 
   logTopTerms(stats);
 
+  const totalActions = totalLikes + totalFollows + totalReplies;
+
+  // Spike detection — halt if actions are abnormally high
+  if (checkForSpike(stats, totalActions)) {
+    saveStats(stats);
+    process.exit(1);
+  }
+
+  recordRunActions(stats, totalActions);
+
   const rate = stats.followBackRate.followed > 0
     ? ((stats.followBackRate.followedBack / stats.followBackRate.followed) * 100).toFixed(1)
     : "0.0";
@@ -802,6 +955,17 @@ async function run() {
   stats.filteredCount  = 0;
   stats.runs           = (stats.runs || 0) + 1;
   stats.lastRun        = new Date().toISOString();
+
+  recordRunHistory(stats, {
+    timestamp:  new Date().toISOString(),
+    likes:      totalLikes,
+    follows:    totalFollows,
+    unfollows:  totalUnfollows,
+    replies:    totalReplies,
+    netFollowers,
+    filtered:   stats.filteredCount || 0,
+  });
+
   saveStats(stats);
 
   console.log(`📊 Cumulative — ${stats.totalLikes} likes, ${stats.totalFollows} follows, ${stats.totalUnfollows} unfollows, ${stats.totalReplies} replies across ${stats.runs} runs`);

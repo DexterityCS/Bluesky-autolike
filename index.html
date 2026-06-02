@@ -665,6 +665,48 @@
     </div>
   </div>
 
+  <!-- Run History -->
+  <div class="panel" style="margin-bottom:16px;">
+    <div class="panel-header">
+      <span class="panel-title">Run History</span>
+      <span style="font-size:11px;color:var(--muted);">Last 10 runs</span>
+    </div>
+    <div class="panel-body" style="padding:0;">
+      <div id="run-history-table" style="font-size:11px;">
+        <div style="display:grid;grid-template-columns:1.8fr repeat(5,1fr);padding:10px 20px;border-bottom:1px solid var(--border);color:var(--muted);letter-spacing:1px;font-size:10px;text-transform:uppercase;">
+          <span>Timestamp</span><span>Likes</span><span>Follows</span><span>Unfollows</span><span>Replies</span><span>Net ±</span>
+        </div>
+        <div id="run-history-rows" style="color:var(--muted);padding:14px 20px;font-size:11px;">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Follower Growth Chart -->
+  <div class="panel" style="margin-bottom:16px;">
+    <div class="panel-header">
+      <span class="panel-title">Follower Growth</span>
+      <span style="font-size:11px;color:var(--muted);">30-day history</span>
+    </div>
+    <div class="panel-body">
+      <canvas id="growth-chart" height="120" style="width:100%;display:block;"></canvas>
+      <div id="growth-empty" style="font-size:11px;color:var(--muted);display:none;">Not enough data yet — check back after a few runs.</div>
+    </div>
+  </div>
+
+  <!-- Term Performance -->
+  <div class="panel" style="margin-bottom:16px;">
+    <div class="panel-header">
+      <span class="panel-title">Search Term Performance</span>
+      <span style="font-size:11px;color:var(--muted);">Cumulative</span>
+    </div>
+    <div class="panel-body" style="padding:0;">
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;padding:10px 20px;border-bottom:1px solid var(--border);color:var(--muted);letter-spacing:1px;font-size:10px;text-transform:uppercase;">
+        <span>Term</span><span>Likes</span><span>Follows</span><span>Runs</span>
+      </div>
+      <div id="term-performance-rows" style="color:var(--muted);padding:14px 20px;font-size:11px;">Loading...</div>
+    </div>
+  </div>
+
   <footer>
     <span>dexterityCS Automation Suite</span>
     <a href="https://twitch.tv/dexterity_cs" target="_blank">twitch.tv/dexterity_cs</a>
@@ -711,6 +753,120 @@
         const d = new Date(data.lastRun);
         document.getElementById("stat-lastrun").textContent = d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
         document.getElementById("stat-lastrun-sub").textContent = d.toLocaleDateString();
+      }
+
+      // Run history table
+      const runs = data.runHistory || [];
+      const runRows = document.getElementById("run-history-rows");
+      if (runs.length === 0) {
+        runRows.textContent = "No runs recorded yet.";
+      } else {
+        runRows.innerHTML = runs.map(r => {
+          const d = new Date(r.timestamp);
+          const timeStr = d.toLocaleDateString([], {month:"short", day:"numeric"}) + " " + d.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+          const net = r.netFollowers >= 0 ? `+${r.netFollowers}` : `${r.netFollowers}`;
+          const netColor = r.netFollowers > 0 ? "var(--green)" : r.netFollowers < 0 ? "var(--accent2)" : "var(--muted)";
+          return `<div style="display:grid;grid-template-columns:1.8fr repeat(5,1fr);padding:9px 20px;border-bottom:1px solid var(--border);">
+            <span style="color:var(--text);">${timeStr}</span>
+            <span style="color:var(--accent);">${r.likes ?? 0}</span>
+            <span style="color:var(--accent2);">${r.follows ?? 0}</span>
+            <span style="color:var(--muted);">${r.unfollows ?? 0}</span>
+            <span style="color:var(--text);">${r.replies ?? 0}</span>
+            <span style="color:${netColor};">${net}</span>
+          </div>`;
+        }).join("");
+      }
+
+      // Follower growth chart
+      const history = data.followerHistory || [];
+      const chartCanvas = document.getElementById("growth-chart");
+      const growthEmpty = document.getElementById("growth-empty");
+      if (history.length < 2) {
+        chartCanvas.style.display = "none";
+        growthEmpty.style.display = "block";
+      } else {
+        chartCanvas.style.display = "block";
+        growthEmpty.style.display = "none";
+        const ctx = chartCanvas.getContext("2d");
+        const w = chartCanvas.offsetWidth || 700;
+        chartCanvas.width = w;
+        chartCanvas.height = 120;
+        const counts = history.map(h => h.count);
+        const min = Math.min(...counts);
+        const max = Math.max(...counts);
+        const range = max - min || 1;
+        const pad = { top: 16, bottom: 24, left: 40, right: 16 };
+        const chartW = w - pad.left - pad.right;
+        const chartH = chartCanvas.height - pad.top - pad.bottom;
+
+        ctx.clearRect(0, 0, w, chartCanvas.height);
+
+        // Grid lines
+        ctx.strokeStyle = "rgba(255,255,255,0.05)";
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= 4; i++) {
+          const y = pad.top + (chartH / 4) * i;
+          ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
+          const val = Math.round(max - (range / 4) * i);
+          ctx.fillStyle = "rgba(255,255,255,0.3)";
+          ctx.font = "9px monospace";
+          ctx.textAlign = "right";
+          ctx.fillText(val, pad.left - 4, y + 3);
+        }
+
+        // Line
+        ctx.beginPath();
+        ctx.strokeStyle = "#00e5ff";
+        ctx.lineWidth = 2;
+        history.forEach((h, i) => {
+          const x = pad.left + (i / (history.length - 1)) * chartW;
+          const y = pad.top + chartH - ((h.count - min) / range) * chartH;
+          i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+
+        // Fill under line
+        ctx.lineTo(pad.left + chartW, pad.top + chartH);
+        ctx.lineTo(pad.left, pad.top + chartH);
+        ctx.closePath();
+        ctx.fillStyle = "rgba(0,229,255,0.06)";
+        ctx.fill();
+
+        // Dots
+        history.forEach((h, i) => {
+          const x = pad.left + (i / (history.length - 1)) * chartW;
+          const y = pad.top + chartH - ((h.count - min) / range) * chartH;
+          ctx.beginPath();
+          ctx.arc(x, y, 3, 0, Math.PI * 2);
+          ctx.fillStyle = "#00e5ff";
+          ctx.fill();
+        });
+
+        // X axis labels (first, middle, last)
+        ctx.fillStyle = "rgba(255,255,255,0.3)";
+        ctx.font = "9px monospace";
+        ctx.textAlign = "center";
+        [[0, history[0].date], [Math.floor(history.length/2), history[Math.floor(history.length/2)]?.date], [history.length-1, history[history.length-1].date]].forEach(([i, date]) => {
+          if (!date) return;
+          const x = pad.left + (i / (history.length - 1)) * chartW;
+          ctx.fillText(new Date(date).toLocaleDateString([], {month:"short", day:"numeric"}), x, chartCanvas.height - 4);
+        });
+      }
+
+      // Term performance table
+      const terms = data.termPerformance || {};
+      const termRows = document.getElementById("term-performance-rows");
+      const sorted = Object.entries(terms).sort((a, b) => (b[1].likes + b[1].follows) - (a[1].likes + a[1].follows));
+      if (sorted.length === 0) {
+        termRows.textContent = "No data yet.";
+      } else {
+        termRows.innerHTML = sorted.map(([term, d], i) => `
+          <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;padding:9px 20px;border-bottom:1px solid var(--border);${i === sorted.length-1 ? "border-bottom:none;" : ""}">
+            <span style="color:var(--accent);">${term}</span>
+            <span style="color:var(--text);">${d.likes}</span>
+            <span style="color:var(--text);">${d.follows}</span>
+            <span style="color:var(--muted);">${d.runs}</span>
+          </div>`).join("");
       }
     } catch (e) {
       console.warn("Could not fetch stats.json:", e.message);
