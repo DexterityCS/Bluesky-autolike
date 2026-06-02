@@ -223,6 +223,8 @@ async function run() {
 
   console.log(`\n📋 ${latestPostByAuthor.size} unique authors found`);
 
+  const likedThisRun = new Set(); // track liked author DIDs in memory
+
   for (const [authorDid, post] of latestPostByAuthor.entries()) {
     if (totalLikes + totalFollows >= actionsTarget) break;
 
@@ -230,15 +232,20 @@ async function run() {
     const cid = post.cid;
     if (!uri || !cid) continue;
 
+    // Skip if already liked this author this run
+    if (likedThisRun.has(authorDid)) continue;
+
     // Like the most recent post only if not already liked
     const alreadyLiked = await isAlreadyLiked(uri, token);
     if (!alreadyLiked) {
       const liked = await likePost(uri, cid, did, token);
       if (liked) {
         totalLikes++;
+        likedThisRun.add(authorDid);
         console.log(`   ❤️  Liked post by @${post.author?.handle}`);
       }
     } else {
+      likedThisRun.add(authorDid);
       console.log(`   ⏭️  Already liked @${post.author?.handle} — skipping`);
     }
 
