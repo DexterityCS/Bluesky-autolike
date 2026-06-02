@@ -587,21 +587,44 @@
         <button class="btn-trigger" id="btn-run" onclick="triggerRun()">
           <span id="btn-label">▶ Run Bot Now</span>
         </button>
+        <button class="btn-secondary" id="btn-pause" style="padding:16px 20px;white-space:nowrap;" onclick="togglePause()">⏸ Pause</button>
+        <button class="btn-secondary" style="padding:16px 20px;white-space:nowrap;" onclick="exportStats()">⬇ Export</button>
       </div>
+      <div id="pause-status" style="font-size:10px;color:var(--muted);margin-top:8px;display:none;">⏸️ Bot is paused — scheduled runs will be skipped until unpaused.</div>
     </div>
   </div>
 
-  <!-- Log -->
+  <!-- Live Run Log -->
   <div class="panel" style="margin-bottom: 16px;">
     <div class="panel-header">
-      <span class="panel-title">Activity Log</span>
-      <button class="btn-secondary" style="padding: 6px 12px; font-size:10px;" onclick="clearLog()">Clear</button>
+      <span class="panel-title">Live Run Log</span>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span id="log-status" style="font-size:11px;color:var(--muted);">Idle</span>
+        <button class="btn-secondary" style="padding:6px 12px;font-size:10px;" onclick="refreshLog()">↻ Refresh</button>
+        <button class="btn-secondary" style="padding:6px 12px;font-size:10px;" onclick="clearLog()">Clear</button>
+      </div>
     </div>
     <div class="log-area" id="log">
-      <div class="log-line">
-        <span class="log-time">—</span>
-        <span class="log-msg">Waiting for run...</span>
+      <div class="log-line"><span class="log-time">—</span><span class="log-msg">Waiting for run...</span></div>
+    </div>
+  </div>
+
+  <!-- Blocklist Manager -->
+  <div class="panel" style="margin-bottom:16px;">
+    <div class="panel-header">
+      <span class="panel-title">Block List</span>
+      <span style="font-size:11px;color:var(--muted);">Accounts never engaged with</span>
+    </div>
+    <div class="panel-body">
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <input id="blocklist-input" type="text" placeholder="did:plc:... or @handle.bsky.social"
+          style="flex:1;background:rgba(0,0,0,0.3);border:1px solid var(--border);color:var(--text);font-family:var(--font-mono);font-size:12px;padding:8px 10px;outline:none;"
+          onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"
+          onkeydown="if(event.key==='Enter')addToBlocklist()" />
+        <button class="btn-secondary" style="padding:8px 14px;" onclick="addToBlocklist()">+ Add</button>
       </div>
+      <div id="blocklist-entries" style="font-size:11px;color:var(--muted);">Loading...</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:8px;">Changes are saved to localStorage and pushed to blocklist.json on next run trigger.</div>
     </div>
   </div>
 
@@ -959,7 +982,158 @@
     }
   })();
 
-  const DEFAULT_TERMS = ["#CS2", "#CounterStrike", "#CounterStrike2", "#CS2clips", "CS2", "counter-strike"];
+  // ── Pause mode ────────────────────────────────────────────
+  let paused = JSON.parse(localStorage.getItem("bsky_paused") || "false");
+
+  function renderPauseState() {
+    const btn = document.getElementById("btn-pause");
+    const status = document.getElementById("pause-status");
+    const runBtn = document.getElementById("btn-run");
+    if (paused) {
+      btn.textContent = "▶ Resume";
+      btn.style.borderColor = "var(--accent2)";
+      btn.style.color = "var(--accent2)";
+      status.style.display = "block";
+      runBtn.disabled = true;
+    } else {
+      btn.textContent = "⏸ Pause";
+      btn.style.borderColor = "var(--border)";
+      btn.style.color = "var(--muted)";
+      status.style.display = "none";
+      runBtn.disabled = false;
+    }
+  }
+
+  function togglePause() {
+    paused = !paused;
+    localStorage.setItem("bsky_paused", JSON.stringify(paused));
+    renderPauseState();
+    log(paused ? "⏸️ Bot paused — scheduled runs will be skipped." : "▶️ Bot resumed.", paused ? "warn" : "success");
+  }
+
+  renderPauseState();
+
+  // ── Export stats ──────────────────────────────────────────
+  async function exportStats() {
+    try {
+      const res = await fetch(STATS_URL, { headers: { "Accept": "application/vnd.github.raw+json" } });
+      if (!res.ok) { log("❌ Could not fetch stats for export.", "error"); return; }
+      const data = await res.json();
+      const csv = buildCSV(data);
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = "bluesky-stats.csv"; a.click();
+      URL.revokeObjectURL(url);
+      log("⬇️ Stats exported as CSV.", "success");
+    } catch (e) { log(`❌ Export failed: ${e.message}`, "error"); }
+  }
+
+  function buildCSV(data) {
+    const rows = [["Metric", "Value"]];
+    rows.push(["Total Likes", data.totalLikes || 0]);
+    rows.push(["Total Follows", data.totalFollows || 0]);
+    rows.push(["Total Unfollows", data.totalUnfollows || 0]);
+    rows.push(["Total Replies", data.totalReplies || 0]);
+    rows.push(["Runs", data.runs || 0]);
+    rows.push(["Follow-back Rate", data.followBackRate?.followed > 0
+      ? ((data.followBackRate.followedBack / data.followBackRate.followed) * 100).toFixed(1) + "%" : "0%"]);
+    rows.push([]);
+    rows.push(["Run History"]);
+    rows.push(["Timestamp", "Likes", "Follows", "Unfollows", "Replies", "Net Followers"]);
+    (data.runHistory || []).forEach(r => rows.push([r.timestamp, r.likes, r.follows, r.unfollows, r.replies, r.netFollowers]));
+    rows.push([]);
+    rows.push(["Term Performance"]);
+    rows.push(["Term", "Likes", "Follows", "Runs"]);
+    Object.entries(data.termPerformance || {}).forEach(([term, d]) => rows.push([term, d.likes, d.follows, d.runs]));
+    return rows.map(r => r.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+  }
+
+  // ── Live run log (polls GitHub Actions API) ───────────────
+  let logPollInterval = null;
+
+  async function refreshLog() {
+    const token = document.getElementById("token-input").value.trim();
+    if (!token) { log("Enter your GitHub token to view live logs.", "warn"); return; }
+
+    document.getElementById("log-status").textContent = "Fetching...";
+    document.getElementById("log-status").style.color = "var(--accent)";
+
+    try {
+      const runsRes = await fetch(
+        `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/${WORKFLOW_FILE}/runs?per_page=1`,
+        { headers: { "Authorization": `Bearer ${token}`, "Accept": "application/vnd.github+json" } }
+      );
+      const runsData = await runsRes.json();
+      const run = runsData.workflow_runs?.[0];
+      if (!run) { log("No runs found.", "warn"); return; }
+
+      const status = run.status;
+      const conclusion = run.conclusion;
+      document.getElementById("log-status").textContent = status === "completed" ? conclusion : status;
+      document.getElementById("log-status").style.color = conclusion === "success" ? "var(--green)" : status === "in_progress" ? "var(--accent)" : "var(--accent2)";
+
+      // Get jobs
+      const jobsRes = await fetch(run.jobs_url, { headers: { "Authorization": `Bearer ${token}`, "Accept": "application/vnd.github+json" } });
+      const jobsData = await jobsRes.json();
+      const job = jobsData.jobs?.[0];
+      if (!job) return;
+
+      // Get log lines from steps
+      const logArea = document.getElementById("log");
+      logArea.innerHTML = "";
+      for (const step of job.steps || []) {
+        const stepColor = step.conclusion === "success" ? "success" : step.conclusion === "failure" ? "error" : "info";
+        log(`${step.conclusion === "success" ? "✅" : step.conclusion === "failure" ? "❌" : "⏳"} ${step.name}`, stepColor);
+      }
+
+      // Auto-poll if in progress
+      if (status === "in_progress") {
+        if (!logPollInterval) logPollInterval = setInterval(refreshLog, 10000);
+      } else {
+        clearInterval(logPollInterval); logPollInterval = null;
+      }
+    } catch (e) {
+      log(`❌ Log fetch failed: ${e.message}`, "error");
+      document.getElementById("log-status").textContent = "Error";
+      document.getElementById("log-status").style.color = "var(--accent2)";
+    }
+  }
+
+  // ── Blocklist manager ─────────────────────────────────────
+  let blocklistEntries = JSON.parse(localStorage.getItem("bsky_blocklist") || "[]");
+
+  function renderBlocklist() {
+    const container = document.getElementById("blocklist-entries");
+    if (blocklistEntries.length === 0) {
+      container.textContent = "No blocked accounts.";
+      return;
+    }
+    container.innerHTML = blocklistEntries.map((entry, i) => `
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);">
+        <span style="color:var(--text);font-size:11px;">${entry}</span>
+        <button onclick="removeFromBlocklist(${i})" style="background:none;border:1px solid var(--border);color:var(--accent2);font-size:10px;padding:3px 8px;cursor:pointer;">Remove</button>
+      </div>`).join("");
+  }
+
+  function addToBlocklist() {
+    const input = document.getElementById("blocklist-input");
+    const val = input.value.trim();
+    if (!val || blocklistEntries.includes(val)) return;
+    blocklistEntries.push(val);
+    localStorage.setItem("bsky_blocklist", JSON.stringify(blocklistEntries));
+    renderBlocklist();
+    input.value = "";
+    log(`🚫 Added ${val} to block list.`, "warn");
+  }
+
+  function removeFromBlocklist(index) {
+    blocklistEntries.splice(index, 1);
+    localStorage.setItem("bsky_blocklist", JSON.stringify(blocklistEntries));
+    renderBlocklist();
+  }
+
+  renderBlocklist();
   let searchTerms = JSON.parse(localStorage.getItem("bsky_search_terms") || "null") || [...DEFAULT_TERMS];
 
   function renderTags() {

@@ -32,8 +32,26 @@ const FOLLOWER_MILESTONES  = [100, 250, 500, 1000, 2500, 5000, 10000];
 const WEEKLY_SUMMARY_DAY   = 1; // 0=Sun, 1=Mon
 
 // Account protection
-const SPIKE_THRESHOLD      = 3;   // flag run if actions are 3x the average
+const SPIKE_THRESHOLD      = 3;
 const BLOCK_LIST_PATH      = "blocklist.json";
+
+// Smart unfollow timing — only unfollow once per day at this UTC hour
+const UNFOLLOW_HOUR_UTC    = 12;
+
+// Engagement scoring — weight for prioritizing posts
+const SCORE_LIKE_WEIGHT    = 1;
+const SCORE_REPLY_WEIGHT   = 3;
+const SCORE_REPOST_WEIGHT  = 2;
+const MIN_ENGAGEMENT_SCORE = 0; // 0 = engage with everything, raise to filter low-engagement
+
+// Mutual network — boost accounts followed by people you follow
+const MUTUAL_NETWORK_BOOST = true;
+
+// Reply personas — rotate between these tones
+const REPLY_PERSONAS = ["hype", "analytical", "friendly"];
+
+// Pause mode flag — checked at start of each run
+const PAUSE_PATH = "pause.json";
 
 const DEFAULT_TERMS = ["#CS2", "#CounterStrike", "#CounterStrike2", "#CS2clips", "CS2", "counter-strike"];
 const SEARCH_TERMS  = process.env.SEARCH_TERMS
@@ -233,8 +251,16 @@ async function passesQualityFilters(authorDid, post, token, stats) {
 }
 
 // ── AI Reply generation ───────────────────────────────────
-async function generateReply(postText, authorHandle) {
+async function generateReply(postText, authorHandle, persona = "friendly") {
   if (!ANTHROPIC_API_KEY) return null;
+
+  const personaInstructions = {
+    hype:       "Be enthusiastic and hyped up. Use energy but not cringe. Sound genuinely excited about the CS2 topic.",
+    analytical: "Be insightful and tactical. Offer a brief strategic take or observation about what they said.",
+    friendly:   "Be warm, conversational, and genuine. Sound like a real teammate or fellow CS2 player.",
+  };
+
+  const instruction = personaInstructions[persona] || personaInstructions.friendly;
 
   const body = JSON.stringify({
     model: "claude-opus-4-5",
@@ -578,7 +604,49 @@ async function checkReplyEngagement(did, token, stats) {
   }
 }
 
-// ── Block list ────────────────────────────────────────────
+// ── Pause mode ────────────────────────────────────────────
+function isPaused() {
+  if (!fs.existsSync(PAUSE_PATH)) return false;
+  try { return JSON.parse(fs.readFileSync(PAUSE_PATH, "utf8")).paused === true; }
+  catch { return false; }
+}
+
+// ── Engagement score ──────────────────────────────────────
+function scorePost(post) {
+  const likes    = post.likeCount    || 0;
+  const replies  = post.replyCount   || 0;
+  const reposts  = post.repostCount  || 0;
+  return (likes * SCORE_LIKE_WEIGHT) + (replies * SCORE_REPLY_WEIGHT) + (reposts * SCORE_REPOST_WEIGHT);
+}
+
+// ── Mutual network ────────────────────────────────────────
+async function getMutualNetwork(did, token) {
+  if (!MUTUAL_NETWORK_BOOST) return new Set();
+  const mutuals = new Set();
+  let cursor = null;
+  do {
+    const path = `app.bsky.graph.getFollows?actor=${encodeURIComponent(did)}&limit=100${cursor ? `&cursor=${cursor}` : ""}`;
+    const res = await apiRequest(path, "GET", null, token);
+    if (res.status !== 200) break;
+    for (const f of res.body.follows || []) mutuals.add(f.did);
+    cursor = res.body.cursor;
+  } while (cursor);
+  return mutuals;
+}
+
+// ── Smart unfollow timing ─────────────────────────────────
+function shouldRunUnfollows() {
+  const hour = new Date().getUTCHours();
+  return hour === UNFOLLOW_HOUR_UTC;
+}
+
+// ── Reply persona ─────────────────────────────────────────
+function getReplyPersona(stats) {
+  const idx = (stats.totalReplies || 0) % REPLY_PERSONAS.length;
+  return REPLY_PERSONAS[idx];
+}
+
+
 function loadBlockList() {
   if (!fs.existsSync(BLOCK_LIST_PATH)) return new Set();
   try { return new Set(JSON.parse(fs.readFileSync(BLOCK_LIST_PATH, "utf8"))); }
@@ -703,6 +771,12 @@ async function run() {
 
   await selfTest();
 
+  // Pause mode check
+  if (isPaused()) {
+    console.log("⏸️  Bot is paused — skipping run. Toggle pause off in the dashboard to resume.");
+    return;
+  }
+
   const stats = loadStats();
   pruneLastLikedAt(stats);
   pruneLastRepliedAt(stats);
@@ -730,6 +804,8 @@ async function run() {
   const blockList       = loadBlockList();
   const following       = await getFollowing(did, token);
   const { followers, count: followerCount } = await getFollowers(did, token);
+  const mutualNetwork   = await getMutualNetwork(did, token);
+  console.log(`🤝 Mutual network: ${mutualNetwork.size} accounts`);
 
   // Net follower gain since last run
   const netFollowers = getNetFollowerGain(stats, followerCount);
@@ -750,8 +826,13 @@ async function run() {
   // Update follow-back rate
   updateFollowBackRate(stats, followers);
 
-  // Unfollow inactive non-followers
-  const totalUnfollows = await runUnfollows(did, token, following, followers);
+  // Unfollow inactive non-followers — only run at designated hour
+  let totalUnfollows = 0;
+  if (shouldRunUnfollows()) {
+    totalUnfollows = await runUnfollows(did, token, following, followers);
+  } else {
+    console.log(`⏰ Unfollow check skipped — runs at ${UNFOLLOW_HOUR_UTC}:00 UTC`);
+  }
 
   // Like back new followers
   const likeBackCount = await runLikeBackFollowers(did, token, following, followers, stats);
@@ -788,11 +869,30 @@ async function run() {
   }
 
   console.log(`\n📋 ${latestPostByAuthor.size} unique authors found`);
+
+  // Sort authors by engagement score, boosting mutual network accounts
+  const sortedAuthors = [...latestPostByAuthor.entries()].sort(([didA, postA], [didB, postB]) => {
+    let scoreA = scorePost(postA);
+    let scoreB = scorePost(postB);
+    if (mutualNetwork.has(didA)) scoreA += 10; // boost mutual network
+    if (mutualNetwork.has(didB)) scoreB += 10;
+    return scoreB - scoreA;
+  });
+
+  // Filter by minimum engagement score
+  const filteredAuthors = MIN_ENGAGEMENT_SCORE > 0
+    ? sortedAuthors.filter(([, post]) => scorePost(post) >= MIN_ENGAGEMENT_SCORE)
+    : sortedAuthors;
+
+  console.log(`📊 ${filteredAuthors.length} authors after engagement filter (min score: ${MIN_ENGAGEMENT_SCORE})`);
+
   const likedThisRun   = new Set();
   const termLikes      = {};
   const termFollows    = {};
+  const currentPersona = getReplyPersona(stats);
+  console.log(`💬 Reply persona this run: ${currentPersona}`);
 
-  for (const [authorDid, post] of latestPostByAuthor.entries()) {
+  for (const [authorDid, post] of filteredAuthors) {
     if (totalLikes + totalFollows >= actionsTarget) break;
 
     const uri = post.uri;
@@ -871,7 +971,7 @@ async function run() {
       if (ANTHROPIC_API_KEY && likesSinceLastReply >= REPLY_FREQUENCY) {
         const postText = targetPost.record?.text || "";
         if (postText.length >= MIN_REPLY_TEXT_LEN && canReply(authorDid, stats)) {
-          const replyText = await generateReply(postText, post.author?.handle);
+          const replyText = await generateReply(postText, post.author?.handle, currentPersona);
           if (replyText) {
             const replied = await replyToPost(targetPost, replyText, did, token);
             if (replied) {
