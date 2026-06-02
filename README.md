@@ -53,8 +53,6 @@ An intelligent GitHub Actions bot that grows your Bluesky presence by engaging w
 ```
 Bluesky-autolike/
 ├── bot.js                          — core bot logic
-├── undo-likes.js                   — utility: undo recent likes within a time window
-├── unfollow-non-english.js         — utility: unfollow accounts that don't post in English
 ├── index.html                      — GitHub Pages dashboard
 ├── package.json
 ├── stats.json                      — auto-generated, tracks cumulative stats
