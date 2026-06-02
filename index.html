@@ -466,20 +466,25 @@
 
   <!-- Stats -->
   <div class="section-label">// Session Stats</div>
-  <div class="stats-row">
+  <div class="stats-row" style="grid-template-columns: repeat(4, 1fr);">
     <div class="stat-card">
       <div class="stat-label">Likes Given</div>
       <div class="stat-value accent" id="stat-likes">—</div>
-      <div class="stat-sub">this session</div>
+      <div class="stat-sub">cumulative</div>
     </div>
     <div class="stat-card red">
       <div class="stat-label">Follows Made</div>
       <div class="stat-value red" id="stat-follows">—</div>
-      <div class="stat-sub">this session</div>
+      <div class="stat-sub">cumulative</div>
     </div>
     <div class="stat-card yellow">
+      <div class="stat-label">Unfollows</div>
+      <div class="stat-value yellow" id="stat-unfollows">—</div>
+      <div class="stat-sub">cumulative</div>
+    </div>
+    <div class="stat-card">
       <div class="stat-label">Last Run</div>
-      <div class="stat-value yellow" style="font-size:18px; padding-top:8px;" id="stat-lastrun">Never</div>
+      <div class="stat-value accent" style="font-size:18px; padding-top:8px;" id="stat-lastrun">Never</div>
       <div class="stat-sub" id="stat-lastrun-sub">no runs yet</div>
     </div>
   </div>
@@ -677,6 +682,7 @@
       const data = await res.json();
       document.getElementById("stat-likes").textContent = data.totalLikes ?? "0";
       document.getElementById("stat-follows").textContent = data.totalFollows ?? "0";
+      document.getElementById("stat-unfollows").textContent = data.totalUnfollows ?? "0";
       if (data.lastRun) {
         const d = new Date(data.lastRun);
         document.getElementById("stat-lastrun").textContent = d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
