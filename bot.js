@@ -2,7 +2,7 @@ const https = require("https");
 
 const BLUESKY_HANDLE = process.env.BLUESKY_HANDLE;
 const BLUESKY_PASSWORD = process.env.BLUESKY_PASSWORD;
-const ACTIONS_PER_RUN = parseInt(process.env.ACTIONS_PER_RUN || "100");
+const ACTIONS_PER_RUN = parseInt(process.env.ACTIONS_PER_RUN || "25");
 const INACTIVE_DAYS = 60; // unfollow if inactive this many days AND not following back
 
 // Hashtags and keywords — customize via env vars or edit defaults here
