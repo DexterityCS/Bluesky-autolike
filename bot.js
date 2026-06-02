@@ -121,6 +121,7 @@ async function getLatestPost(actorDid, token) {
 }
 
 
+async function likePost(uri, cid, did, token) {
   const res = await apiRequest("com.atproto.repo.createRecord", "POST", {
     repo: did,
     collection: "app.bsky.feed.like",
