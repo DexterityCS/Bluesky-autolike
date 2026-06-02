@@ -113,6 +113,15 @@ async function searchPosts(term, token) {
   return res.body.posts || [];
 }
 
+async function isAlreadyLiked(uri, token) {
+  const res = await apiRequest(
+    `app.bsky.feed.getPosts?uris=${encodeURIComponent(uri)}`,
+    "GET", null, token
+  );
+  if (res.status !== 200 || !res.body.posts?.length) return false;
+  return !!res.body.posts[0].viewer?.like;
+}
+
 async function likePost(uri, cid, did, token) {
   const res = await apiRequest("com.atproto.repo.createRecord", "POST", {
     repo: did,
@@ -221,11 +230,16 @@ async function run() {
     const cid = post.cid;
     if (!uri || !cid) continue;
 
-    // Like the most recent post from this author
-    const liked = await likePost(uri, cid, did, token);
-    if (liked) {
-      totalLikes++;
-      console.log(`   ❤️  Liked post by @${post.author?.handle}`);
+    // Like the most recent post only if not already liked
+    const alreadyLiked = await isAlreadyLiked(uri, token);
+    if (!alreadyLiked) {
+      const liked = await likePost(uri, cid, did, token);
+      if (liked) {
+        totalLikes++;
+        console.log(`   ❤️  Liked post by @${post.author?.handle}`);
+      }
+    } else {
+      console.log(`   ⏭️  Already liked @${post.author?.handle} — skipping`);
     }
 
     // Follow if not already following
