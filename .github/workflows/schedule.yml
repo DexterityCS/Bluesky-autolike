@@ -32,14 +32,14 @@ jobs:
       - name: Debug secrets
         run: |
           echo "HANDLE is set: ${{ secrets.BLUESKY_HANDLE != '' }}"
-          echo "PASSWORD is set: ${{ secrets.BLUESKY_PASSWORD != '' }}"
+          echo "PASSWORD is set: ${{ secrets.BLUESKY_APP_PASSWORD != '' }}"
 
       - name: Run bot
         env:
           BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
-          BLUESKY_PASSWORD: ${{ secrets.BLUESKY_PASSWORD }}
+          BLUESKY_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
           SEARCH_TERMS: ${{ github.event.inputs.search_terms || secrets.SEARCH_TERMS }}
-          ACTIONS_PER_RUN: ${{ github.event.inputs.actions_per_run || '25' }}
+          ACTIONS_PER_RUN: ${{ github.event.inputs.actions_per_run || secrets.ACTIONS_PER_RUN || '25' }}
         run: node bot.js
 
       - name: Commit updated stats
