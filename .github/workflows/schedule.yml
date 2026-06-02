@@ -43,6 +43,7 @@ jobs:
           BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
           BLUESKY_PASSWORD: ${{ secrets.BLUESKY_PASSWORD }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           SEARCH_TERMS: ${{ github.event.inputs.search_terms || secrets.SEARCH_TERMS }}
           ACTIONS_PER_RUN: ${{ github.event.inputs.actions_per_run || secrets.ACTIONS_PER_RUN || '25' }}
         run: node bot.js
