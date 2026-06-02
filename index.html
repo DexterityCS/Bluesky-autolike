@@ -768,7 +768,16 @@
 
   renderUpcomingRuns();
 
-  let actionsPerRun = 25;
+  let actionsPerRun = parseInt(localStorage.getItem("bsky_actions_per_run") || "25");
+
+  // Init slider to saved value
+  (function initSlider() {
+    const slider = document.getElementById("actions-slider");
+    if (slider) {
+      slider.value = actionsPerRun;
+      document.getElementById("actions-val").textContent = `${actionsPerRun} actions`;
+    }
+  })();
 
   const DEFAULT_TERMS = ["#CS2", "#CounterStrike", "#CounterStrike2", "#CS2clips", "CS2", "counter-strike"];
   let searchTerms = JSON.parse(localStorage.getItem("bsky_search_terms") || "null") || [...DEFAULT_TERMS];
@@ -818,6 +827,7 @@
   function updateActionsPerRun(val) {
     actionsPerRun = parseInt(val);
     document.getElementById("actions-val").textContent = `${val} actions`;
+    localStorage.setItem("bsky_actions_per_run", val);
   }
 
   function clearLog() {
