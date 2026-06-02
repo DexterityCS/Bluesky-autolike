@@ -20,7 +20,10 @@ const DAILY_ACTION_CAP   = 200;
 const HOURLY_LIMIT       = 60;
 
 // Reply config — 1 in every N liked posts gets a reply
-const REPLY_FREQUENCY    = 5;
+const REPLY_FREQUENCY      = 5;
+const REPLY_COOLDOWN_DAYS  = 7;    // don't reply to same account more than once per X days
+const MIN_REPLY_TEXT_LEN   = 30;   // minimum post text length to attempt a reply
+const DISCORD_WEBHOOK_URL  = process.env.DISCORD_WEBHOOK_URL || null; // optional run summary
 
 const DEFAULT_TERMS = ["#CS2", "#CounterStrike", "#CounterStrike2", "#CS2clips", "CS2", "counter-strike"];
 const SEARCH_TERMS  = process.env.SEARCH_TERMS
@@ -34,12 +37,13 @@ const STATS_PATH       = "stats.json";
 function loadStats() {
   const defaults = {
     totalLikes: 0, totalFollows: 0, totalUnfollows: 0, totalReplies: 0,
-    runs: 0, lastRun: null, lastLikedAt: {}, dailyActions: {},
+    runs: 0, lastRun: null, lastLikedAt: {}, lastRepliedAt: {}, dailyActions: {},
     hourlyActions: [], followedAt: {},
     followBackRate: { followed: 0, followedBack: 0 },
-    followerHistory: [], // [{ date, count }] for growth velocity
-    termPerformance: {}, // { term: { likes, follows } }
+    followerHistory: [],
+    termPerformance: {},
     filteredCount: 0,
+    replyEngagement: { sent: 0, gotLiked: 0, gotReplied: 0 },
   };
   if (!fs.existsSync(STATS_PATH)) return defaults;
   try { return { ...defaults, ...JSON.parse(fs.readFileSync(STATS_PATH, "utf8")) }; }
@@ -414,15 +418,164 @@ function logTopTerms(stats) {
   });
 }
 
-// ── Main run ──────────────────────────────────────────────
+// ── Self-test ─────────────────────────────────────────────
+async function selfTest() {
+  console.log("🔧 Running self-test...");
+  const errors = [];
+
+  if (!BLUESKY_HANDLE)   errors.push("BLUESKY_HANDLE not set");
+  if (!BLUESKY_PASSWORD) errors.push("BLUESKY_PASSWORD not set");
+
+  // Test Bluesky connectivity
+  try {
+    const res = await apiRequest(
+      `app.bsky.actor.getProfile?actor=${encodeURIComponent(BLUESKY_HANDLE)}`,
+      "GET", null, null
+    );
+    if (res.status === 400 || res.status === 404) errors.push(`Bluesky profile not found for ${BLUESKY_HANDLE}`);
+    else console.log(`   ✅ Bluesky reachable`);
+  } catch (e) {
+    errors.push(`Bluesky API unreachable: ${e.message}`);
+  }
+
+  // Test Anthropic if key provided
+  if (ANTHROPIC_API_KEY) {
+    try {
+      const res = await request({
+        hostname: "api.anthropic.com",
+        path: "/v1/models",
+        method: "GET",
+        headers: {
+          "x-api-key": ANTHROPIC_API_KEY,
+          "anthropic-version": "2023-06-01",
+        },
+      });
+      if (res.status === 200) console.log(`   ✅ Anthropic API reachable`);
+      else errors.push(`Anthropic API returned ${res.status}`);
+    } catch (e) {
+      errors.push(`Anthropic API unreachable: ${e.message}`);
+    }
+  }
+
+  if (errors.length) {
+    console.error(`\n❌ Self-test failed:\n${errors.map(e => `   - ${e}`).join("\n")}`);
+    process.exit(1);
+  }
+  console.log("✅ Self-test passed\n");
+}
+
+// ── Discord webhook ───────────────────────────────────────
+async function postDiscordSummary(summary) {
+  if (!DISCORD_WEBHOOK_URL) return;
+  try {
+    const url = new URL(DISCORD_WEBHOOK_URL);
+    const body = JSON.stringify({
+      embeds: [{
+        title: "🤖 Bluesky Bot Run Complete",
+        color: 0x00e5ff,
+        fields: [
+          { name: "❤️ Likes",      value: String(summary.likes),      inline: true },
+          { name: "➕ Follows",    value: String(summary.follows),    inline: true },
+          { name: "🗑️ Unfollows",  value: String(summary.unfollows),  inline: true },
+          { name: "💬 Replies",    value: String(summary.replies),    inline: true },
+          { name: "📈 Follow-back Rate", value: `${summary.followBackRate}%`, inline: true },
+          { name: "👥 Net Followers",    value: `${summary.netFollowers >= 0 ? "+" : ""}${summary.netFollowers}`, inline: true },
+          { name: "🏆 Top Term",   value: summary.topTerm || "—",     inline: false },
+        ],
+        footer: { text: `Run #${summary.runs} • ${new Date().toLocaleString()}` },
+      }]
+    });
+    await request({
+      hostname: url.hostname,
+      path: url.pathname + url.search,
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    }, body);
+    console.log("📨 Discord summary posted");
+  } catch (e) {
+    console.warn(`Discord webhook failed: ${e.message}`);
+  }
+}
+
+// ── Reply spam guard ──────────────────────────────────────
+function canReply(authorDid, stats) {
+  if (!stats.lastRepliedAt) return true;
+  const last = stats.lastRepliedAt[authorDid];
+  if (!last) return true;
+  const daysSince = (Date.now() - new Date(last)) / 86400000;
+  return daysSince >= REPLY_COOLDOWN_DAYS;
+}
+
+function pruneLastRepliedAt(stats) {
+  if (!stats.lastRepliedAt) return;
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 30);
+  for (const [did, timestamp] of Object.entries(stats.lastRepliedAt)) {
+    if (new Date(timestamp) < cutoff) delete stats.lastRepliedAt[did];
+  }
+}
+
+// ── Repost / quote detection ──────────────────────────────
+function isOriginalPost(post) {
+  // Skip reposts (reason === "repost") and quote posts
+  if (post.reason?.$type === "app.bsky.feed.defs#reasonRepost") return false;
+  if (post.record?.embed?.$type === "app.bsky.embed.record") return false; // quote post
+  return true;
+}
+
+// ── Net follower gain ─────────────────────────────────────
+function getNetFollowerGain(stats, currentCount) {
+  if (!stats.followerHistory || stats.followerHistory.length < 2) return 0;
+  const prev = stats.followerHistory[stats.followerHistory.length - 2];
+  return currentCount - (prev?.count || currentCount);
+}
+
+// ── Reply engagement tracker ──────────────────────────────
+async function checkReplyEngagement(did, token, stats) {
+  if (!stats.sentReplies || !stats.sentReplies.length) return;
+  if (!stats.replyEngagement) stats.replyEngagement = { sent: 0, gotLiked: 0, gotReplied: 0 };
+
+  // Only check replies from the last 7 days
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 7);
+  const recent = stats.sentReplies.filter(r => new Date(r.sentAt) > cutoff);
+  if (!recent.length) return;
+
+  let newLikes = 0, newReplies = 0;
+  for (const reply of recent) {
+    if (reply.checkedEngagement) continue;
+    try {
+      const res = await apiRequest(
+        `app.bsky.feed.getPosts?uris=${encodeURIComponent(reply.uri)}`,
+        "GET", null, token
+      );
+      if (res.status === 200 && res.body.posts?.length) {
+        const post = res.body.posts[0];
+        if ((post.likeCount || 0) > 0) { newLikes++; stats.replyEngagement.gotLiked++; }
+        if ((post.replyCount || 0) > 0) { newReplies++; stats.replyEngagement.gotReplied++; }
+        reply.checkedEngagement = true;
+      }
+    } catch {}
+    await sleep(200);
+  }
+
+  if (newLikes + newReplies > 0) {
+    console.log(`💬 Reply engagement: ${newLikes} replies got liked, ${newReplies} got replied to`);
+  }
+}
+
+
 async function run() {
   if (!BLUESKY_HANDLE || !BLUESKY_PASSWORD) {
     console.error("❌ Missing BLUESKY_HANDLE or BLUESKY_PASSWORD env vars");
     process.exit(1);
   }
 
+  await selfTest();
+
   const stats = loadStats();
   pruneLastLikedAt(stats);
+  pruneLastRepliedAt(stats);
 
   // Daily cap check
   const dailyUsed = getDailyActionsUsed(stats);
@@ -446,6 +599,13 @@ async function run() {
   const { token, did } = await login();
   const following       = await getFollowing(did, token);
   const { followers, count: followerCount } = await getFollowers(did, token);
+
+  // Net follower gain since last run
+  const netFollowers = getNetFollowerGain(stats, followerCount);
+  if (netFollowers !== 0) console.log(`👥 Net followers since last run: ${netFollowers >= 0 ? "+" : ""}${netFollowers}`);
+
+  // Check reply engagement
+  await checkReplyEngagement(did, token, stats);
 
   // Record follower count for growth velocity
   recordFollowerCount(stats, followerCount);
@@ -479,6 +639,7 @@ async function run() {
       const authorDid = post.author?.did;
       if (!authorDid || !post.uri || !post.cid) continue;
       if (authorDid === did) continue;
+      if (!isOriginalPost(post)) continue; // skip reposts and quote posts
       const existing     = latestPostByAuthor.get(authorDid);
       const postDate     = new Date(post.indexedAt || post.record?.createdAt || 0);
       const existingDate = existing ? new Date(existing.indexedAt || existing.record?.createdAt || 0) : null;
@@ -566,13 +727,24 @@ async function run() {
       // AI reply every REPLY_FREQUENCY likes
       if (ANTHROPIC_API_KEY && likesSinceLastReply >= REPLY_FREQUENCY) {
         const postText = targetPost.record?.text || "";
-        if (postText.length > 10) {
+        if (postText.length >= MIN_REPLY_TEXT_LEN && canReply(authorDid, stats)) {
           const replyText = await generateReply(postText, post.author?.handle);
           if (replyText) {
             const replied = await replyToPost(targetPost, replyText, did, token);
             if (replied) {
               totalReplies++;
               likesSinceLastReply = 0;
+              stats.lastRepliedAt[authorDid] = new Date().toISOString();
+              if (!stats.sentReplies) stats.sentReplies = [];
+              stats.sentReplies.push({
+                uri: targetPost.uri,
+                authorDid,
+                sentAt: new Date().toISOString(),
+                checkedEngagement: false,
+              });
+              // Keep only last 50 sent replies
+              if (stats.sentReplies.length > 50) stats.sentReplies.shift();
+              stats.replyEngagement.sent++;
               console.log(`   💬 Replied to @${post.author?.handle}: "${replyText}"`);
               recordHourlyAction(stats);
               recordDailyAction(stats);
@@ -612,20 +784,34 @@ async function run() {
     ? ((stats.followBackRate.followedBack / stats.followBackRate.followed) * 100).toFixed(1)
     : "0.0";
 
+  const topTerm = Object.entries(stats.termPerformance || {})
+    .sort((a, b) => (b[1].likes + b[1].follows) - (a[1].likes + a[1].follows))[0]?.[0] || "—";
+
   console.log(`\n✅ Run complete — ${totalLikes} likes, ${totalFollows} follows, ${totalUnfollows} unfollows, ${totalReplies} replies`);
   console.log(`📈 Follow-back rate: ${rate}% (${stats.followBackRate.followedBack}/${stats.followBackRate.followed})`);
+  console.log(`👥 Net followers this run: ${netFollowers >= 0 ? "+" : ""}${netFollowers}`);
   console.log(`🚫 Filtered this run: ${stats.filteredCount || 0} accounts`);
+  if (stats.replyEngagement?.sent > 0) {
+    console.log(`💬 Reply engagement: ${stats.replyEngagement.gotLiked} liked, ${stats.replyEngagement.gotReplied} replied to (of ${stats.replyEngagement.sent} sent)`);
+  }
 
   stats.totalLikes     = (stats.totalLikes || 0) + totalLikes;
   stats.totalFollows   = (stats.totalFollows || 0) + totalFollows;
   stats.totalUnfollows = (stats.totalUnfollows || 0) + totalUnfollows;
   stats.totalReplies   = (stats.totalReplies || 0) + totalReplies;
-  stats.filteredCount  = 0; // reset per run
+  stats.filteredCount  = 0;
   stats.runs           = (stats.runs || 0) + 1;
   stats.lastRun        = new Date().toISOString();
   saveStats(stats);
 
   console.log(`📊 Cumulative — ${stats.totalLikes} likes, ${stats.totalFollows} follows, ${stats.totalUnfollows} unfollows, ${stats.totalReplies} replies across ${stats.runs} runs`);
+
+  // Post Discord summary
+  await postDiscordSummary({
+    likes: totalLikes, follows: totalFollows, unfollows: totalUnfollows,
+    replies: totalReplies, followBackRate: rate,
+    netFollowers, topTerm, runs: stats.runs,
+  });
 }
 
 run().catch((err) => {
