@@ -186,46 +186,59 @@ async function run() {
   let totalLikes = 0;
   let totalFollows = 0;
   const actionsTarget = ACTIONS_PER_RUN;
-  const seenDids = new Set();
 
   console.log(`\n🔎 Search terms: ${SEARCH_TERMS.join(", ")}`);
 
+  // Collect all posts across all search terms, keep only most recent per author
+  const latestPostByAuthor = new Map(); // did → most recent post
+
   for (const term of SEARCH_TERMS) {
-    if (totalLikes + totalFollows >= actionsTarget) break;
     console.log(`\n🔍 Searching "${term}"...`);
     const posts = await searchPosts(term, token);
     console.log(`   Found ${posts.length} posts`);
 
     for (const post of posts) {
-      if (totalLikes + totalFollows >= actionsTarget) break;
-
       const authorDid = post.author?.did;
-      const uri = post.uri;
-      const cid = post.cid;
+      if (!authorDid || !post.uri || !post.cid) continue;
+      if (authorDid === did) continue; // skip own posts
 
-      if (!authorDid || !uri || !cid) continue;
-      if (authorDid === did) continue;
+      const existing = latestPostByAuthor.get(authorDid);
+      const postDate = new Date(post.indexedAt || post.record?.createdAt || 0);
+      const existingDate = existing ? new Date(existing.indexedAt || existing.record?.createdAt || 0) : null;
 
-      // Like the post
-      const liked = await likePost(uri, cid, did, token);
-      if (liked) {
-        totalLikes++;
-        console.log(`   ❤️  Liked post by @${post.author?.handle}`);
+      if (!existing || postDate > existingDate) {
+        latestPostByAuthor.set(authorDid, post);
       }
-
-      // Follow the author if not already following
-      if (!following.has(authorDid) && !seenDids.has(authorDid)) {
-        seenDids.add(authorDid);
-        const followed = await followAccount(authorDid, did, token);
-        if (followed) {
-          totalFollows++;
-          following.set(authorDid, { handle: post.author?.handle });
-          console.log(`   ➕ Followed @${post.author?.handle}`);
-        }
-      }
-
-      await sleep(800);
     }
+  }
+
+  console.log(`\n📋 ${latestPostByAuthor.size} unique authors found`);
+
+  for (const [authorDid, post] of latestPostByAuthor.entries()) {
+    if (totalLikes + totalFollows >= actionsTarget) break;
+
+    const uri = post.uri;
+    const cid = post.cid;
+    if (!uri || !cid) continue;
+
+    // Like the most recent post from this author
+    const liked = await likePost(uri, cid, did, token);
+    if (liked) {
+      totalLikes++;
+      console.log(`   ❤️  Liked post by @${post.author?.handle}`);
+    }
+
+    // Follow if not already following
+    if (!following.has(authorDid)) {
+      const followed = await followAccount(authorDid, did, token);
+      if (followed) {
+        totalFollows++;
+        following.set(authorDid, { handle: post.author?.handle });
+        console.log(`   ➕ Followed @${post.author?.handle}`);
+      }
+    }
+
+    await sleep(800);
   }
 
   console.log(`\n✅ Run complete — ${totalLikes} likes, ${totalFollows} follows, ${totalUnfollows} unfollows`);
