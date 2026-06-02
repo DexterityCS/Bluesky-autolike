@@ -111,7 +111,16 @@ async function searchPosts(term, token) {
   return res.body.posts || [];
 }
 
-async function likePost(uri, cid, did, token) {
+async function getLatestPost(actorDid, token) {
+  const res = await apiRequest(
+    `app.bsky.feed.getAuthorFeed?actor=${encodeURIComponent(actorDid)}&limit=1&filter=posts_no_replies`,
+    "GET", null, token
+  );
+  if (res.status !== 200 || !res.body.feed?.length) return null;
+  return res.body.feed[0].post;
+}
+
+
   const res = await apiRequest("com.atproto.repo.createRecord", "POST", {
     repo: did,
     collection: "app.bsky.feed.like",
@@ -227,18 +236,44 @@ async function run() {
     const postDate = new Date(post.indexedAt || post.record?.createdAt || 0);
     const lastLiked = stats.lastLikedAt[authorDid] ? new Date(stats.lastLikedAt[authorDid]) : null;
 
-    // Skip if this post is not newer than the last time we liked this author
+    // If search result post isn't newer than last liked, fetch their actual latest post
+    let targetPost = post;
     if (lastLiked && postDate <= lastLiked) {
-      console.log(`   ⏭️  No new posts from @${post.author?.handle} — skipping`);
-      likedThisRun.add(authorDid);
-    } else {
-      const liked = await likePost(uri, cid, did, token);
-      if (liked) {
-        totalLikes++;
+      const latestPost = await getLatestPost(authorDid, token);
+      if (latestPost) {
+        const latestDate = new Date(latestPost.indexedAt || latestPost.record?.createdAt || 0);
+        if (latestDate > lastLiked) {
+          targetPost = latestPost;
+          console.log(`   🔄 Found newer post from @${post.author?.handle} via profile fetch`);
+        } else {
+          console.log(`   ⏭️  No new posts from @${post.author?.handle} — skipping`);
+          likedThisRun.add(authorDid);
+          if (!following.has(authorDid)) {
+            const followed = await followAccount(authorDid, did, token);
+            if (followed) {
+              totalFollows++;
+              following.set(authorDid, { handle: post.author?.handle });
+              console.log(`   ➕ Followed @${post.author?.handle}`);
+            }
+          }
+          await sleep(800);
+          continue;
+        }
+      } else {
+        console.log(`   ⏭️  No posts found for @${post.author?.handle} — skipping`);
         likedThisRun.add(authorDid);
-        stats.lastLikedAt[authorDid] = postDate.toISOString();
-        console.log(`   ❤️  Liked post by @${post.author?.handle}`);
+        await sleep(300);
+        continue;
       }
+    }
+
+    const liked = await likePost(targetPost.uri, targetPost.cid, did, token);
+    if (liked) {
+      totalLikes++;
+      likedThisRun.add(authorDid);
+      const targetDate = new Date(targetPost.indexedAt || targetPost.record?.createdAt || 0);
+      stats.lastLikedAt[authorDid] = targetDate.toISOString();
+      console.log(`   ❤️  Liked post by @${post.author?.handle}`);
     }
 
     if (!following.has(authorDid)) {
