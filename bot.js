@@ -360,7 +360,21 @@ function updateFollowBackRate(stats, followers) {
 }
 
 // ── Growth velocity ───────────────────────────────────────
-function recordFollowerCount(stats, count) {
+function pruneLastLikedAt(stats) {
+  if (!stats.lastLikedAt) return;
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 30);
+  let pruned = 0;
+  for (const [did, timestamp] of Object.entries(stats.lastLikedAt)) {
+    if (new Date(timestamp) < cutoff) {
+      delete stats.lastLikedAt[did];
+      pruned++;
+    }
+  }
+  if (pruned > 0) console.log(`🧹 Pruned ${pruned} stale lastLikedAt entries`);
+}
+
+
   if (!stats.followerHistory) stats.followerHistory = [];
   const today = new Date().toISOString().slice(0, 10);
   const last  = stats.followerHistory[stats.followerHistory.length - 1];
@@ -408,6 +422,7 @@ async function run() {
   }
 
   const stats = loadStats();
+  pruneLastLikedAt(stats);
 
   // Daily cap check
   const dailyUsed = getDailyActionsUsed(stats);
