@@ -53,7 +53,28 @@ const REPLY_PERSONAS = ["hype", "analytical", "friendly"];
 // Pause mode flag — checked at start of each run
 const PAUSE_PATH = "pause.json";
 
-const DEFAULT_TERMS = ["#CS2", "#CounterStrike", "#CounterStrike2", "#CS2clips", "CS2", "counter-strike"];
+const DEFAULT_TERMS = [
+  // CS2
+  "#CS2", "#CounterStrike", "#CounterStrike2", "#CS2clips", "CS2", "counter-strike",
+  // Apex Legends
+  "#ApexLegends", "#Apex", "apex legends",
+  // Rainbow Six Siege
+  "#RainbowSixSiege", "#R6Siege", "#R6",
+  // Overwatch
+  "#Overwatch", "#Overwatch2", "#OW2",
+  // Minecraft
+  "#Minecraft", "minecraft",
+  // Terraria
+  "#Terraria", "terraria",
+];
+
+// NSFW tags and keywords to filter out — posts containing these will be skipped
+const NSFW_TAGS = [
+  "nsfw", "18+", "onlyfans", "adult", "explicit", "lewd", "hentai",
+  "nude", "naked", "porn", "xxx", "erotic", "fetish", "suggestive",
+];
+
+const NSFW_ACCOUNTS = new Set(); // populated from blocklist
 const SEARCH_TERMS  = process.env.SEARCH_TERMS
   ? process.env.SEARCH_TERMS.split(",").map(s => s.trim()).filter(Boolean)
   : DEFAULT_TERMS;
@@ -255,20 +276,30 @@ async function generateReply(postText, authorHandle, persona = "friendly") {
   if (!ANTHROPIC_API_KEY) return null;
 
   const personaInstructions = {
-    hype:       "Be enthusiastic and hyped up. Use energy but not cringe. Sound genuinely excited about the CS2 topic.",
+    hype:       "Be enthusiastic and hyped up. Use energy but not cringe. Sound genuinely excited about the topic.",
     analytical: "Be insightful and tactical. Offer a brief strategic take or observation about what they said.",
-    friendly:   "Be warm, conversational, and genuine. Sound like a real teammate or fellow CS2 player.",
+    friendly:   "Be warm, conversational, and genuine. Sound like a real fellow gamer.",
   };
 
   const instruction = personaInstructions[persona] || personaInstructions.friendly;
 
+  // Detect game context from post text
+  const text = postText.toLowerCase();
+  let gameContext = "gaming";
+  if (text.includes("cs2") || text.includes("counter-strike") || text.includes("counterstrike")) gameContext = "CS2";
+  else if (text.includes("apex") || text.includes("apex legends")) gameContext = "Apex Legends";
+  else if (text.includes("rainbow six") || text.includes("r6") || text.includes("siege")) gameContext = "Rainbow Six Siege";
+  else if (text.includes("overwatch") || text.includes("ow2")) gameContext = "Overwatch";
+  else if (text.includes("minecraft")) gameContext = "Minecraft";
+  else if (text.includes("terraria")) gameContext = "Terraria";
+
   const body = JSON.stringify({
     model: "claude-opus-4-5",
     max_tokens: 150,
-    system: "You are Dexterity (@dexteritycs.bsky.social), a CS2 streamer and content creator. Write short, genuine, conversational replies to CS2 posts. Sound like a real player — not a bot. Never use emojis excessively. Max 200 characters. Output only the reply text, nothing else.",
+    system: `You are Dexterity (@dexteritycs.bsky.social), a gamer and content creator who plays CS2, Apex Legends, Rainbow Six Siege, Overwatch, Minecraft, and Terraria. Write short, genuine, conversational replies to gaming posts. ${instruction} Sound like a real gamer — not a bot. Never use emojis excessively. Max 200 characters. Output only the reply text, nothing else.`,
     messages: [{
       role: "user",
-      content: `Reply to this CS2 post by @${authorHandle}:\n\n"${postText}"\n\nWrite a short genuine reply as Dexterity. Keep it under 200 characters.`
+      content: `Reply to this ${gameContext} post by @${authorHandle}:\n\n"${postText}"\n\nWrite a short genuine reply as Dexterity. Keep it relevant to ${gameContext} and under 200 characters.`
     }]
   });
 
@@ -605,7 +636,25 @@ async function checkReplyEngagement(did, token, stats) {
   }
 }
 
-// ── Pause mode ────────────────────────────────────────────
+// ── NSFW filter ───────────────────────────────────────────
+function isNSFW(post) {
+  const text   = (post.record?.text || "").toLowerCase();
+  const labels = post.labels || [];
+  const tags   = post.record?.tags || [];
+
+  // Check Bluesky's built-in content labels
+  if (labels.some(l => ["porn", "sexual", "nudity", "graphic-media"].includes(l.val))) return true;
+
+  // Check post text for NSFW keywords
+  if (NSFW_TAGS.some(tag => text.includes(tag))) return true;
+
+  // Check post tags
+  if (tags.some(t => NSFW_TAGS.includes(t.toLowerCase()))) return true;
+
+  return false;
+}
+
+
 function isPaused() {
   if (!fs.existsSync(PAUSE_PATH)) return false;
   try { return JSON.parse(fs.readFileSync(PAUSE_PATH, "utf8")).paused === true; }
@@ -858,7 +907,11 @@ async function run() {
       const authorDid = post.author?.did;
       if (!authorDid || !post.uri || !post.cid) continue;
       if (authorDid === did) continue;
-      if (!isOriginalPost(post)) continue; // skip reposts and quote posts
+      if (!isOriginalPost(post)) continue;
+      if (isNSFW(post)) {
+        console.log(`   🔞 Skipped NSFW post by @${post.author?.handle}`);
+        continue;
+      }
       const existing     = latestPostByAuthor.get(authorDid);
       const postDate     = new Date(post.indexedAt || post.record?.createdAt || 0);
       const existingDate = existing ? new Date(existing.indexedAt || existing.record?.createdAt || 0) : null;
@@ -927,6 +980,12 @@ async function run() {
       if (latestPost) {
         const latestDate = new Date(latestPost.indexedAt || latestPost.record?.createdAt || 0);
         if (latestDate > lastLiked) {
+          if (isNSFW(latestPost)) {
+            console.log(`   🔞 Skipped NSFW post by @${post.author?.handle}`);
+            likedThisRun.add(authorDid);
+            await sleep(300);
+            continue;
+          }
           targetPost = latestPost;
           console.log(`   🔄 Found newer post from @${post.author?.handle} via profile fetch`);
         } else {
