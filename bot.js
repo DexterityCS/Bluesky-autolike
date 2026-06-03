@@ -275,6 +275,12 @@ async function passesQualityFilters(authorDid, post, token, stats) {
 async function generateReply(postText, authorHandle, persona = "friendly") {
   if (!ANTHROPIC_API_KEY) return null;
 
+  // Only reply to English posts
+  if (!isEnglishText(postText)) {
+    console.log(`   🌐 Skipped reply — non-English post`);
+    return null;
+  }
+
   const personaInstructions = {
     hype:       "Be enthusiastic and hyped up. Use energy but not cringe. Sound genuinely excited about the topic.",
     analytical: "Be insightful and tactical. Offer a brief strategic take or observation about what they said.",
@@ -296,7 +302,7 @@ async function generateReply(postText, authorHandle, persona = "friendly") {
   const body = JSON.stringify({
     model: "claude-opus-4-5",
     max_tokens: 150,
-    system: `You are Dexterity (@dexteritycs.bsky.social), a gamer and content creator who plays CS2, Apex Legends, Rainbow Six Siege, Overwatch, Minecraft, and Terraria. Write short, genuine, conversational replies to gaming posts. ${instruction} Sound like a real gamer — not a bot. Never use emojis excessively. Max 200 characters. Output only the reply text, nothing else.`,
+    system: `You are Dexterity (@dexteritycs.bsky.social), a gamer and content creator who plays CS2, Apex Legends, Rainbow Six Siege, Overwatch, Minecraft, and Terraria. Write short, genuine, conversational replies to gaming posts. ${instruction} Sound like a real gamer — not a bot. Never use emojis excessively. Always reply in English only. Max 200 characters. Output only the reply text, nothing else.`,
     messages: [{
       role: "user",
       content: `Reply to this ${gameContext} post by @${authorHandle}:\n\n"${postText}"\n\nWrite a short genuine reply as Dexterity. Keep it relevant to ${gameContext} and under 200 characters.`
@@ -634,6 +640,23 @@ async function checkReplyEngagement(did, token, stats) {
   if (newLikes + newReplies > 0) {
     console.log(`💬 Reply engagement: ${newLikes} replies got liked, ${newReplies} got replied to`);
   }
+}
+
+
+// ── English detection ──────────────────────────────────────
+function isEnglishText(text) {
+  if (!text || text.trim().length < 5) return true;
+  const nonLatinScripts = [
+    /[\u0400-\u04FF]/, /[\u0600-\u06FF]/, /[\u4E00-\u9FFF]/,
+    /[\u3040-\u30FF]/, /[\uAC00-\uD7AF]/, /[\u0900-\u097F]/,
+    /[\u0E00-\u0E7F]/, /[\u0370-\u03FF]/,
+  ];
+  for (const script of nonLatinScripts) { if (script.test(text)) return false; }
+  const latinChars = (text.match(/[a-zA-Z]/g) || []).length;
+  const totalChars = (text.match(/\S/g) || []).length;
+  if (totalChars === 0) return true;
+  if (latinChars / totalChars < 0.3) return false;
+  return true;
 }
 
 // ── NSFW filter ───────────────────────────────────────────
