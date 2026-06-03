@@ -69,9 +69,11 @@ const DEFAULT_TERMS = [
 ];
 
 // NSFW tags and keywords to filter out — posts containing these will be skipped
+// NSFW tags — kept tight to avoid false positives on gaming content
+// "adult", "explicit", "suggestive" removed as they match gaming terms too easily
 const NSFW_TAGS = [
-  "nsfw", "18+", "onlyfans", "adult", "explicit", "lewd", "hentai",
-  "nude", "naked", "porn", "xxx", "erotic", "fetish", "suggestive",
+  "nsfw", "18+", "onlyfans", "lewd", "hentai",
+  "nude", "naked", "porn", "xxx", "erotic", "fetish",
 ];
 
 const NSFW_ACCOUNTS = new Set(); // populated from blocklist
@@ -668,8 +670,8 @@ function isNSFW(post) {
   // Check Bluesky's built-in content labels
   if (labels.some(l => ["porn", "sexual", "nudity", "graphic-media"].includes(l.val))) return true;
 
-  // Check post text for NSFW keywords
-  if (NSFW_TAGS.some(tag => text.includes(tag))) return true;
+  // Check post text for NSFW keywords (word boundary match to reduce false positives)
+  if (NSFW_TAGS.some(tag => new RegExp(`\\b${tag}\\b`, "i").test(text))) return true;
 
   // Check post tags
   if (tags.some(t => NSFW_TAGS.includes(t.toLowerCase()))) return true;
