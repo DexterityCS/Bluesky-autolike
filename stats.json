@@ -1,10 +1,10 @@
 {
-  "totalLikes": 414,
-  "totalFollows": 223,
+  "totalLikes": 429,
+  "totalFollows": 233,
   "totalUnfollows": 32,
-  "totalReplies": 27,
-  "runs": 13,
-  "lastRun": "2026-06-03T12:50:24.376Z",
+  "totalReplies": 30,
+  "runs": 14,
+  "lastRun": "2026-06-03T19:56:06.707Z",
   "lastLikedAt": {
     "did:plc:rr4w6c7bgwsda3ty6uei7p3p": "2026-06-03T11:29:31.173Z",
     "did:plc:ois4cqnsylhfo4mwk6fcfxyi": "2026-06-02T11:46:47.376Z",
@@ -62,22 +62,22 @@
     "did:plc:gtewrqjhaaf4idvgm6ayh5h3": "2026-05-23T19:32:07.894Z",
     "did:plc:2vb67k5t7gjuyqu2rfdl33fp": "2026-05-12T17:36:03.878Z",
     "did:plc:lpudxda4ejgn5dkrykl7bl2l": "2026-06-02T22:05:30.478Z",
-    "did:plc:a5fwvpvub5e7mxaebuxn3tuu": "2026-06-03T03:18:56.773Z",
-    "did:plc:vfk54vm5zlxgtat6s3k2vxjv": "2026-06-02T16:52:46.776Z",
+    "did:plc:a5fwvpvub5e7mxaebuxn3tuu": "2026-06-03T16:20:16.465Z",
+    "did:plc:vfk54vm5zlxgtat6s3k2vxjv": "2026-06-03T17:31:03.962Z",
     "did:plc:2u3hmqw63fxetmctgwzlq6zc": "2026-06-03T00:55:56.773Z",
     "did:plc:upmujpish4uytqaoa22hyqk5": "2026-06-03T11:43:21.907Z",
     "did:plc:hxncusurpz3tz6vi4slikvjr": "2026-06-01T18:39:48.479Z",
     "did:plc:ms55v2wm6luo3frawtyvw7xh": "2026-06-02T15:48:09.675Z",
-    "did:plc:hzxggcw42ym3qruditugw6mi": "2026-06-03T08:16:29.174Z",
+    "did:plc:hzxggcw42ym3qruditugw6mi": "2026-06-03T19:38:37.765Z",
     "did:plc:6xcqsnllix7ieg7lziuxttqm": "2026-06-02T22:41:13.278Z",
     "did:plc:dqav4a4ue5cyzgckv3l6fshr": "2026-06-02T23:43:51.873Z",
     "did:plc:ao3wtyjoxf5akyqjbf5yhsvo": "2026-06-01T07:49:40.472Z",
-    "did:plc:h3bnbutnqeyk2lgyh4ar2dbf": "2026-06-03T10:12:55.872Z",
+    "did:plc:h3bnbutnqeyk2lgyh4ar2dbf": "2026-06-03T11:00:22.077Z",
     "did:plc:koblqnig7cn2mmcf3huljdyy": "2026-06-03T06:18:56.872Z",
     "did:plc:l56x6nxda2dj7p2rynrlv6fc": "2026-06-01T18:29:33.374Z",
     "did:plc:bf3wc4ii4wcw7emzyhmdmjmz": "2026-06-02T21:34:40.876Z",
     "did:plc:fvzfvbpkcr6r3hxsc5wfa22o": "2026-06-02T13:46:24.179Z",
-    "did:plc:bwheulnj77xqs3hrmangtimf": "2026-06-02T15:02:43.279Z",
+    "did:plc:bwheulnj77xqs3hrmangtimf": "2026-06-03T14:18:17.677Z",
     "did:plc:uxbpizykopmoprjss322ubzp": "2026-06-03T04:51:16.175Z",
     "did:plc:foeo3sfuy2ywvyknonfzu6lf": "2026-06-01T19:57:16.872Z",
     "did:plc:nyyw2ax7h4rqstac2aer2xuc": "2026-06-03T03:41:53.778Z",
@@ -115,7 +115,7 @@
     "did:plc:wlkfp26cwo4k2poupwpuusse": "2026-05-31T15:06:23.171Z",
     "did:plc:ejie675kyyiktb6idpuchqcu": "2026-06-02T15:00:01.172Z",
     "did:plc:wi2fb2jhpkq2x6mjdwa3wz2h": "2026-06-02T20:28:49.575Z",
-    "did:plc:fhixez76yufh767ylg5km7um": "2026-06-03T02:12:55.279Z",
+    "did:plc:fhixez76yufh767ylg5km7um": "2026-06-03T13:04:37.477Z",
     "did:plc:bjrs7373kkuyxzieupksi2fi": "2026-06-02T14:09:17.571Z",
     "did:plc:pkhlpsgktefv4254tzvw2a4r": "2026-05-30T12:50:36.175Z",
     "did:plc:kecp45bxrt6tzdbqawtmufmp": "2026-06-02T19:57:31.205Z",
@@ -144,7 +144,16 @@
     "did:plc:oblhhokkdgkxezouo7k7jrjw": "2026-06-03T12:39:20.077Z",
     "did:plc:mrgwbrff7ileoutr3hjmbjlu": "2026-06-03T03:16:12.174Z",
     "did:plc:v3xid4ehil5h44c4kdlolofk": "2026-06-03T06:11:12.874Z",
-    "did:plc:mlyqgonzfh5x22eihve3t6yv": "2026-06-01T11:27:17.074Z"
+    "did:plc:mlyqgonzfh5x22eihve3t6yv": "2026-06-01T11:27:17.074Z",
+    "did:plc:4k5l7qvgrtuxbtlfkseernfw": "2026-05-30T17:15:17.075Z",
+    "did:plc:rsvffhpv7qppop53sfuch6ez": "2026-06-03T17:28:00.962Z",
+    "did:plc:f3d5bf73ln4n6wj5qsnvwpfe": "2026-06-02T15:09:51.873Z",
+    "did:plc:7xfb2wjzkmvimfjy3k7c2iqy": "2026-05-27T20:11:55.973Z",
+    "did:plc:pq7655kuh4uq3qnkrnsddba4": "2026-05-30T18:51:56.275Z",
+    "did:plc:yppa2x4ndk7fpcfntxycou74": "2026-06-01T19:34:32.678Z",
+    "did:plc:iynvtetia22opezlkeqodyg3": "2026-05-28T15:38:21.379Z",
+    "did:plc:tof6l46s2sf7hk4hvrb5pi7t": "2026-05-31T22:47:57.754Z",
+    "did:plc:k2wjmgba5kquaupnto4kynyv": "2026-06-01T09:31:16.375Z"
   },
   "lastRepliedAt": {
     "did:plc:hxncusurpz3tz6vi4slikvjr": "2026-06-02T21:26:11.914Z",
@@ -173,43 +182,44 @@
     "did:plc:oblhhokkdgkxezouo7k7jrjw": "2026-06-03T12:49:14.855Z",
     "did:plc:ye4brpmgfvf4pkcwufgn2vu3": "2026-06-03T12:49:37.728Z",
     "did:plc:sitrbg3wlsmmw6kaeju4vxxb": "2026-06-03T12:50:10.363Z",
-    "did:plc:asyaz6jgyscz3rftl7nnz22h": "2026-06-03T12:50:19.086Z"
+    "did:plc:asyaz6jgyscz3rftl7nnz22h": "2026-06-03T12:50:19.086Z",
+    "did:plc:7xfb2wjzkmvimfjy3k7c2iqy": "2026-06-03T19:55:42.993Z",
+    "did:plc:tof6l46s2sf7hk4hvrb5pi7t": "2026-06-03T19:55:52.205Z",
+    "did:plc:bwheulnj77xqs3hrmangtimf": "2026-06-03T19:56:04.903Z"
   },
   "dailyActions": {
     "2026-06-02": 63,
-    "2026-06-03": 170
+    "2026-06-03": 198
   },
   "hourlyActions": [
-    1780490936157,
-    1780490938423,
-    1780490940017,
-    1780490944838,
-    1780490947739,
-    1780490952857,
-    1780490954855,
-    1780490956899,
-    1780490957901,
-    1780490971894,
-    1780490973491,
-    1780490974505,
-    1780490975506,
-    1780490977728,
-    1780490992201,
-    1780490993169,
-    1780491004740,
-    1780491005729,
-    1780491007622,
-    1780491010363,
-    1780491012383,
-    1780491014364,
-    1780491015320,
-    1780491016584,
-    1780491017489,
-    1780491019086,
-    1780491021373,
-    1780491022590,
-    1780491023518,
-    1780491023574
+    1780516536358,
+    1780516536376,
+    1780516538079,
+    1780516538102,
+    1780516538959,
+    1780516538974,
+    1780516539825,
+    1780516540669,
+    1780516542993,
+    1780516544023,
+    1780516544905,
+    1780516546056,
+    1780516546188,
+    1780516548202,
+    1780516548219,
+    1780516549234,
+    1780516549257,
+    1780516550435,
+    1780516552205,
+    1780516553262,
+    1780516554144,
+    1780516554169,
+    1780516556230,
+    1780516557085,
+    1780516557109,
+    1780516558596,
+    1780516560953,
+    1780516564903
   ],
   "followedAt": {
     "did:plc:a5fwvpvub5e7mxaebuxn3tuu": {
@@ -411,10 +421,46 @@
     "did:plc:mlyqgonzfh5x22eihve3t6yv": {
       "handle": "chemoreceptor.bsky.social",
       "followedBack": false
+    },
+    "did:plc:4k5l7qvgrtuxbtlfkseernfw": {
+      "handle": "tarou2towel.bsky.social",
+      "followedBack": false
+    },
+    "did:plc:rsvffhpv7qppop53sfuch6ez": {
+      "handle": "horsetuna.bsky.social",
+      "followedBack": false
+    },
+    "did:plc:f3d5bf73ln4n6wj5qsnvwpfe": {
+      "handle": "alexxferret.bsky.social",
+      "followedBack": false
+    },
+    "did:plc:7xfb2wjzkmvimfjy3k7c2iqy": {
+      "handle": "sartorikev.bsky.social",
+      "followedBack": false
+    },
+    "did:plc:pq7655kuh4uq3qnkrnsddba4": {
+      "handle": "milanovicmihael.bsky.social",
+      "followedBack": false
+    },
+    "did:plc:yppa2x4ndk7fpcfntxycou74": {
+      "handle": "heatherwoodward.bsky.social",
+      "followedBack": false
+    },
+    "did:plc:iynvtetia22opezlkeqodyg3": {
+      "handle": "caitysecret.bsky.social",
+      "followedBack": false
+    },
+    "did:plc:tof6l46s2sf7hk4hvrb5pi7t": {
+      "handle": "zinthings.bsky.social",
+      "followedBack": false
+    },
+    "did:plc:k2wjmgba5kquaupnto4kynyv": {
+      "handle": "riizuna.lgbtq.blue",
+      "followedBack": false
     }
   },
   "followBackRate": {
-    "followed": 52,
+    "followed": 62,
     "followedBack": 0
   },
   "followerHistory": [
@@ -424,39 +470,39 @@
     },
     {
       "date": "2026-06-03",
-      "count": 9
+      "count": 8
     }
   ],
   "termPerformance": {
     "#CS2": {
       "likes": 5,
       "follows": 0,
-      "runs": 6
+      "runs": 7
     },
     "#CounterStrike": {
       "likes": 6,
       "follows": 0,
-      "runs": 6
+      "runs": 7
     },
     "#CounterStrike2": {
       "likes": 2,
       "follows": 0,
-      "runs": 6
+      "runs": 7
     },
     "#CS2clips": {
       "likes": 0,
       "follows": 0,
-      "runs": 6
+      "runs": 7
     },
     "CS2": {
       "likes": 69,
       "follows": 2,
-      "runs": 6
+      "runs": 7
     },
     "counter-strike": {
-      "likes": 29,
-      "follows": 14,
-      "runs": 6
+      "likes": 34,
+      "follows": 15,
+      "runs": 7
     },
     "#CS2Pro": {
       "likes": 0,
@@ -542,17 +588,91 @@
       "likes": 16,
       "follows": 16,
       "runs": 1
+    },
+    "#ApexLegends": {
+      "likes": 2,
+      "follows": 2,
+      "runs": 1
+    },
+    "#Apex": {
+      "likes": 0,
+      "follows": 0,
+      "runs": 1
+    },
+    "apex legends": {
+      "likes": 2,
+      "follows": 2,
+      "runs": 1
+    },
+    "#RainbowSixSiege": {
+      "likes": 0,
+      "follows": 0,
+      "runs": 1
+    },
+    "#R6Siege": {
+      "likes": 0,
+      "follows": 0,
+      "runs": 1
+    },
+    "#R6": {
+      "likes": 0,
+      "follows": 0,
+      "runs": 1
+    },
+    "#Overwatch": {
+      "likes": 1,
+      "follows": 0,
+      "runs": 1
+    },
+    "#Overwatch2": {
+      "likes": 0,
+      "follows": 0,
+      "runs": 1
+    },
+    "#OW2": {
+      "likes": 0,
+      "follows": 0,
+      "runs": 1
+    },
+    "#Minecraft": {
+      "likes": 0,
+      "follows": 0,
+      "runs": 1
+    },
+    "minecraft": {
+      "likes": 1,
+      "follows": 1,
+      "runs": 1
+    },
+    "#Terraria": {
+      "likes": 3,
+      "follows": 3,
+      "runs": 1
+    },
+    "terraria": {
+      "likes": 1,
+      "follows": 1,
+      "runs": 1
     }
   },
   "filteredCount": 0,
   "replyEngagement": {
-    "sent": 27,
-    "gotLiked": 22,
-    "gotReplied": 19
+    "sent": 30,
+    "gotLiked": 26,
+    "gotReplied": 22
   },
   "milestonesCelebrated": [],
   "lastWeeklySummary": null,
   "runHistory": [
+    {
+      "timestamp": "2026-06-03T19:56:06.707Z",
+      "likes": 15,
+      "follows": 10,
+      "unfollows": 0,
+      "replies": 3,
+      "netFollowers": 0,
+      "filtered": 0
+    },
     {
       "timestamp": "2026-06-03T12:50:24.376Z",
       "likes": 24,
@@ -614,7 +734,8 @@
     57,
     55,
     29,
-    30
+    30,
+    28
   ],
   "sentReplies": [
     {
@@ -759,24 +880,42 @@
       "uri": "at://did:plc:oblhhokkdgkxezouo7k7jrjw/app.bsky.feed.post/3mnf4vtaqrs2y",
       "authorDid": "did:plc:oblhhokkdgkxezouo7k7jrjw",
       "sentAt": "2026-06-03T12:49:14.855Z",
-      "checkedEngagement": false
+      "checkedEngagement": true
     },
     {
       "uri": "at://did:plc:ye4brpmgfvf4pkcwufgn2vu3/app.bsky.feed.post/3mnf2pgzpds2a",
       "authorDid": "did:plc:ye4brpmgfvf4pkcwufgn2vu3",
       "sentAt": "2026-06-03T12:49:37.728Z",
-      "checkedEngagement": false
+      "checkedEngagement": true
     },
     {
       "uri": "at://did:plc:sitrbg3wlsmmw6kaeju4vxxb/app.bsky.feed.post/3mndrucdwbe2g",
       "authorDid": "did:plc:sitrbg3wlsmmw6kaeju4vxxb",
       "sentAt": "2026-06-03T12:50:10.363Z",
-      "checkedEngagement": false
+      "checkedEngagement": true
     },
     {
       "uri": "at://did:plc:asyaz6jgyscz3rftl7nnz22h/app.bsky.feed.post/3mndv7pbgpt2k",
       "authorDid": "did:plc:asyaz6jgyscz3rftl7nnz22h",
       "sentAt": "2026-06-03T12:50:19.086Z",
+      "checkedEngagement": true
+    },
+    {
+      "uri": "at://did:plc:7xfb2wjzkmvimfjy3k7c2iqy/app.bsky.feed.post/3mmucx5igyk2r",
+      "authorDid": "did:plc:7xfb2wjzkmvimfjy3k7c2iqy",
+      "sentAt": "2026-06-03T19:55:42.993Z",
+      "checkedEngagement": false
+    },
+    {
+      "uri": "at://did:plc:tof6l46s2sf7hk4hvrb5pi7t/app.bsky.feed.post/3mn6nj6bmxc27",
+      "authorDid": "did:plc:tof6l46s2sf7hk4hvrb5pi7t",
+      "sentAt": "2026-06-03T19:55:52.205Z",
+      "checkedEngagement": false
+    },
+    {
+      "uri": "at://did:plc:3mnwuwrawex3yj2gwtyi2nfv/app.bsky.feed.post/3mnfcgoue5p2v",
+      "authorDid": "did:plc:bwheulnj77xqs3hrmangtimf",
+      "sentAt": "2026-06-03T19:56:04.903Z",
       "checkedEngagement": false
     }
   ]
