@@ -1,21 +1,35 @@
-# dexterityCS — Bluesky CS2 Auto-Liker/Follower
+# dexterityCS — Bluesky Auto-Engagement Bot
 
-An intelligent GitHub Actions bot that grows your Bluesky presence by engaging with CS2 content creators automatically. Runs every 4 hours, fully configurable via a GitHub Pages dashboard.
+An intelligent GitHub Actions bot that grows your Bluesky presence by engaging with gaming content creators automatically. Runs every 4 hours, fully configurable via a GitHub Pages dashboard.
+
+---
+
+## Supported Games
+
+- **CS2 / Counter-Strike** — primary focus
+- **Apex Legends**
+- **Rainbow Six Siege**
+- **Overwatch / OW2**
+- **Minecraft**
+- **Terraria**
+
+Search terms are fully customizable from the dashboard without touching secrets.
 
 ---
 
 ## Features
 
 ### Engagement
-- Searches configurable hashtags and keywords across 6+ default CS2 terms
-- Collects all posts per run and deduplicates to the **most recent post per author**
-- Likes and follows authors — skips if already liked recently
-- Profile fetch fallback — if the search result is stale, fetches the author's actual latest post
+- Searches configurable hashtags and keywords across all supported games
+- Deduplicates to the **most recent post per author** per run
+- Likes and follows authors not already engaged with recently
+- Profile fetch fallback — if search result is stale, fetches the author's actual latest post
 - Engagement scoring — sorts authors by likes × replies × reposts before processing
-- Mutual network boost — accounts followed by people you follow get +10 priority score
+- Mutual network boost — accounts in your extended network get +10 priority score
 - Likes back anyone who follows you with a recent post
-- AI-generated contextual replies via Claude — reads each post and replies as Dexterity
+- AI-generated contextual replies via Claude — reads each post, detects the game, replies as Dexterity
 - Reply persona rotation — cycles between `hype`, `analytical`, and `friendly` each run
+- English-only replies — skips non-English posts before calling the API
 - Skips reposts and quote posts — only engages with original content
 
 ### Smart Filtering
@@ -23,6 +37,7 @@ An intelligent GitHub Actions bot that grows your Bluesky presence by engaging w
 - Skips accounts created less than 30 days ago
 - Skips posts older than 7 days
 - Skips accounts with following/followers ratio above 10× (spam signal)
+- NSFW filter — checks Bluesky content labels, post text keywords, and post tags
 - Block list — permanently skip specific accounts
 - Minimum engagement score filter (configurable)
 
@@ -32,20 +47,20 @@ An intelligent GitHub Actions bot that grows your Bluesky presence by engaging w
 - Always keeps accounts that follow you back
 
 ### Safety & Rate Limiting
-- Pause mode — toggle in dashboard to skip all scheduled runs without disabling the workflow
+- Pause mode — toggle in dashboard to skip all scheduled runs
 - Daily action cap: 200 actions across all runs
 - Hourly limit: 60 actions per hour
-- Spike detector — halts run if actions are 3× the historical average
+- Spike detector — halts if actions are 3× the historical average
 - Concurrency lock — prevents parallel runs from duplicating actions
 - 800ms delay between actions
 
 ### Automated Posts
 - **Follower milestones** — auto-posts to Bluesky at 100, 250, 500, 1K, 2.5K, 5K, 10K followers
-- **Weekly Monday summary** — auto-posts weekly stats recap every Monday (followers gained, likes given, follow-back rate)
-- Both use Claude to write genuine posts if `ANTHROPIC_API_KEY` is set, otherwise falls back to default text
+- **Weekly Monday summary** — auto-posts weekly stats recap every Monday
+- Both use Claude to write genuine posts if `ANTHROPIC_API_KEY` is set
 
 ### Analytics & Reporting
-- Cumulative stats in `stats.json`: likes, follows, unfollows, replies, follow-back rate
+- Cumulative stats in `stats.json`: likes, follows, unfollows, replies
 - Growth velocity — 30-day follower history, daily average gain
 - Best performing search terms — tracks which terms drive the most engagement
 - Follow-back rate — % of followed accounts that follow back over time
@@ -57,12 +72,12 @@ An intelligent GitHub Actions bot that grows your Bluesky presence by engaging w
 
 ### Dashboard (GitHub Pages)
 - Manual trigger with 60-second cooldown
-- **Pause / Resume** toggle — pauses all scheduled runs
+- **Pause / Resume** toggle
 - **⬇ Export** — downloads full stats as CSV
-- **Live run log** — polls GitHub Actions API, shows step status, auto-refreshes every 10s during active runs
+- **Live run log** — polls GitHub Actions API, shows step status, auto-refreshes every 10s
 - **Blocklist manager** — add/remove accounts directly in the dashboard
 - Inline GitHub token input — saved to localStorage
-- Search term editor — add/remove terms without touching secrets
+- Search term editor — add/remove terms without touching secrets, persists to localStorage
 - Actions per run slider (10–100) — persists to localStorage
 - Stat cards: Likes, Follows, Unfollows, Replies, Follow-back Rate, Last Run
 - Run history table — last 10 runs color-coded
@@ -84,7 +99,6 @@ Bluesky-autolike/
 ├── blocklist.json                  — auto-generated block list
 ├── pause.json                      — auto-generated pause flag
 ├── README.md
-├── RELEASE_NOTES.md
 └── .github/
     └── workflows/
         ├── schedule.yml            — main bot (every 4 hours)
@@ -143,26 +157,14 @@ const UNFOLLOW_HOUR_UTC    = 12;   // UTC hour to run unfollows (once per day)
 const MIN_ENGAGEMENT_SCORE = 0;    // min post score to engage (0 = all posts)
 const MUTUAL_NETWORK_BOOST = true; // boost accounts in your mutual network
 const FOLLOWER_MILESTONES  = [100, 250, 500, 1000, 2500, 5000, 10000];
+
+// NSFW keywords (tight list to avoid false positives on gaming content)
+const NSFW_TAGS = [
+  "nsfw", "18+", "onlyfans", "lewd", "hentai",
+  "nude", "naked", "porn", "xxx", "erotic", "fetish",
+];
 ```
 
----
-
-## Utility Scripts
-
-### Undo recent likes
-```cmd
-set BLUESKY_HANDLE=dexteritycs.bsky.social
-set BLUESKY_PASSWORD=your-app-password
-set HOURS_BACK=24
-node undo-likes.js
-```
-
-### Unfollow non-English accounts
-```cmd
-set BLUESKY_HANDLE=dexteritycs.bsky.social
-set BLUESKY_PASSWORD=your-app-password
-node unfollow-non-english.js
-```
 
 ---
 
@@ -181,26 +183,32 @@ Runs automatically at `0 */4 * * *` UTC — every 4 hours, 6× per day:
 
 Unfollows run once per day at **12:00 UTC (7:00 AM CDT)**.
 
-A monthly keep-alive commit fires on the 1st of every month to prevent GitHub from disabling the workflow after 60 days.
+A monthly keep-alive commit fires on the 1st of every month to prevent GitHub disabling the workflow after 60 days.
 
 ---
 
 ## Troubleshooting
 
 **Missing BLUESKY_HANDLE or BLUESKY_PASSWORD**
-Check your repo secrets are named exactly `BLUESKY_HANDLE` and `BLUESKY_PASSWORD` (not `BLUESKY_APP_PASSWORD`).
+Check secrets are named exactly `BLUESKY_HANDLE` and `BLUESKY_PASSWORD`.
 
 **Duplicate runs / spam liking**
-Don't cancel runs mid-execution. The concurrency lock prevents parallel runs but cancelling and re-triggering creates duplicate state. Let runs finish naturally.
+Don't cancel runs mid-execution. Let runs finish naturally — the concurrency lock handles overlapping triggers.
+
+**Hit daily cap too fast**
+Open `stats.json`, find `dailyActions`, delete today's date entry and commit. Or raise `DAILY_ACTION_CAP` temporarily in `bot.js`.
+
+**NSFW filter too aggressive / not aggressive enough**
+Edit the `NSFW_TAGS` array at the top of `bot.js`. Use word-boundary safe terms to avoid false positives on gaming content.
 
 **Workflow not running automatically**
-GitHub sometimes skips scheduled runs on busy repos. The monthly keepalive commit prevents the 60-day deactivation. If it still doesn't run, go to Actions tab and manually enable the workflow.
+Go to Actions tab and manually enable the workflow. The monthly keepalive prevents the 60-day deactivation.
 
 **404 on manual trigger from dashboard**
-Check the `GITHUB_USER` and `GITHUB_REPO` constants at the top of `index.html` match your actual repo.
+Check `GITHUB_USER` and `GITHUB_REPO` constants at the top of `index.html` match your actual repo.
 
 **stats.json growing too large**
-`lastLikedAt` is auto-pruned every 30 days. `hourlyActions` is filtered on every run. If the file is still large, delete `followedAt` entries older than 90 days manually.
+`lastLikedAt` auto-prunes every 30 days. If still large, manually delete old entries from `followedAt` for accounts older than 90 days.
 
 ---
 
