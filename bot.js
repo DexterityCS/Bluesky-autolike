@@ -70,10 +70,10 @@ const DEFAULT_TERMS = [
 
 // NSFW tags and keywords to filter out — posts containing these will be skipped
 // NSFW tags — kept tight to avoid false positives on gaming content
-// "adult", "explicit", "suggestive" removed as they match gaming terms too easily
+// "adult", "explicit" removed as they match gaming terms too easily
 const NSFW_TAGS = [
   "nsfw", "18+", "onlyfans", "lewd", "hentai",
-  "nude", "naked", "porn", "xxx", "erotic", "fetish",
+  "nude", "naked", "porn", "xxx", "erotic", "fetish", "suggestive",
 ];
 
 const NSFW_ACCOUNTS = new Set(); // populated from blocklist
