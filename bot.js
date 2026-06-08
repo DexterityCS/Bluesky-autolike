@@ -70,10 +70,19 @@ const DEFAULT_TERMS = [
 
 // NSFW tags and keywords to filter out — posts containing these will be skipped
 // NSFW tags — kept tight to avoid false positives on gaming content
-// "adult", "explicit" removed as they match gaming terms too easily
 const NSFW_TAGS = [
   "nsfw", "18+", "onlyfans", "lewd", "hentai",
-  "nude", "naked", "porn", "xxx", "erotic", "fetish", "suggestive",
+  "nude", "naked", "porn", "xxx", "erotic", "fetish",
+];
+
+// Political keywords — posts containing these will be skipped entirely
+const POLITICAL_TAGS = [
+  "democrat", "republican", "maga", "biden", "trump", "harris", "election",
+  "vote", "voted", "voting", "congress", "senate", "gop", "liberal", "conservative",
+  "socialist", "fascist", "antifa", "blm", "abortion", "prolife", "prochoice",
+  "gun control", "2ndamendment", "immigration", "deportation", "lgbtq", "transgender",
+  "pride parade", "political", "politics", "propaganda", "protest", "activist",
+  "rally", "inauguration", "presidency", "whitehouse", "capitol",
 ];
 
 const NSFW_ACCOUNTS = new Set(); // populated from blocklist
@@ -235,6 +244,87 @@ async function getLatestPost(actorDid, token) {
 }
 
 // ── Quality filters ───────────────────────────────────────
+
+// ── Gaming relevance check ────────────────────────────────
+const GAMING_TERMS = [
+  // CS2
+  "cs2", "counter-strike", "counterstrike", "csgo", "premier", "faceit",
+  "awp", "ak47", "m4a1", "valorant", "pistol round", "eco", "clutch",
+  "smoke", "flash", "molotov", "defuse", "plant", "ct side", "t side",
+  // Apex
+  "apex legends", "apex", "wraith", "pathfinder", "bloodhound", "respawn",
+  "battle royale", "ring", "legends",
+  // R6
+  "rainbow six", "r6", "siege", "operator", "roam",
+  // Overwatch
+  "overwatch", "ow2", "blizzard", "tank", "support", "dps", "healer",
+  // Minecraft
+  "minecraft", "creeper", "steve", "enderman", "nether", "redstone",
+  // Terraria
+  "terraria", "boss", "hardmode",
+  // General gaming
+  "gaming", "gamer", "fps", "streamer", "twitch", "stream", "esports",
+  "ranked", "matchmaking", "kill", "headshot", "frag", "loadout",
+  "crosshair", "sensitivity", "ping", "lag", "win rate", "kd ratio",
+  "game", "gameplay", "highlights", "clip", "play of the game",
+];
+
+function isGamingRelevant(post) {
+  const text = (post.record?.text || "").toLowerCase();
+
+  // Quick check — if any gaming term appears it's relevant
+  if (GAMING_TERMS.some(term => text.includes(term))) return true;
+
+  // Check hashtags
+  const tags = post.record?.tags || [];
+  if (tags.some(t => GAMING_TERMS.some(term => t.toLowerCase().includes(term)))) return true;
+
+  // If post is very short (under 15 chars) and no gaming terms, skip
+  if (text.trim().length < 15) return false;
+
+  return false;
+}
+
+async function isGamingRelevantAI(postText) {
+  if (!ANTHROPIC_API_KEY) return true; // if no API key, don't gate on this
+
+  // Only use AI check for ambiguous posts (no obvious gaming terms)
+  const text = postText.toLowerCase();
+  const hasObviousTerm = GAMING_TERMS.some(term => text.includes(term));
+  if (hasObviousTerm) return true;
+
+  try {
+    const body = JSON.stringify({
+      model: "claude-opus-4-5",
+      max_tokens: 10,
+      system: "You are a content classifier. Answer only YES or NO.",
+      messages: [{
+        role: "user",
+        content: `Is this post about gaming, esports, streaming, or game-related content? Answer only YES or NO.
+
+Post: "${postText.slice(0, 300)}"`
+      }]
+    });
+
+    const res = await request({
+      hostname: "api.anthropic.com",
+      path: "/v1/messages",
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+    }, body);
+
+    if (res.status !== 200) return true; // fail open
+    const answer = res.body.content?.[0]?.text?.trim().toUpperCase();
+    return answer === "YES";
+  } catch {
+    return true; // fail open on error
+  }
+}
+
 async function passesQualityFilters(authorDid, post, token, stats) {
   // Post recency
   const postDate = new Date(post.indexedAt || post.record?.createdAt || 0);
@@ -270,6 +360,30 @@ async function passesQualityFilters(authorDid, post, token, stats) {
     }
   }
 
+  // Check profile bio, display name, and handle for NSFW/political content
+  const profileText = [
+    profile.description || "",
+    profile.displayName || "",
+    profile.handle      || "",
+  ].join(" ").toLowerCase();
+
+  if (NSFW_TAGS.some(tag => new RegExp(`\b${tag}\b`, "i").test(profileText))) {
+    stats.filteredCount = (stats.filteredCount || 0) + 1;
+    return { pass: false, reason: `NSFW profile bio/name` };
+  }
+
+  if (POLITICAL_TAGS.some(tag => new RegExp(`\b${tag}\b`, "i").test(profileText))) {
+    stats.filteredCount = (stats.filteredCount || 0) + 1;
+    return { pass: false, reason: `political profile bio/name` };
+  }
+
+  // Check Bluesky profile labels (e.g. adult-only accounts)
+  const profileLabels = profile.labels || [];
+  if (profileLabels.some(l => ["porn", "sexual", "nudity", "graphic-media", "adult-only"].includes(l.val))) {
+    stats.filteredCount = (stats.filteredCount || 0) + 1;
+    return { pass: false, reason: `NSFW account label` };
+  }
+
   return { pass: true, reason: "ok" };
 }
 
@@ -280,6 +394,16 @@ async function generateReply(postText, authorHandle, persona = "friendly") {
   // Only reply to English posts
   if (!isEnglishText(postText)) {
     console.log(`   🌐 Skipped reply — non-English post`);
+    return null;
+  }
+
+  // Never reply to NSFW or political posts
+  if (POLITICAL_TAGS.some(tag => new RegExp(`\b${tag}\b`, "i").test(postText.toLowerCase()))) {
+    console.log(`   🚫 Skipped reply — political post`);
+    return null;
+  }
+  if (NSFW_TAGS.some(tag => new RegExp(`\b${tag}\b`, "i").test(postText.toLowerCase()))) {
+    console.log(`   🚫 Skipped reply — NSFW post`);
     return null;
   }
 
@@ -673,8 +797,14 @@ function isNSFW(post) {
   // Check post text for NSFW keywords (word boundary match to reduce false positives)
   if (NSFW_TAGS.some(tag => new RegExp(`\\b${tag}\\b`, "i").test(text))) return true;
 
-  // Check post tags
+  // Check post tags for NSFW
   if (tags.some(t => NSFW_TAGS.includes(t.toLowerCase()))) return true;
+
+  // Check political keywords in text
+  if (POLITICAL_TAGS.some(tag => new RegExp(`\\b${tag}\\b`, "i").test(text))) return true;
+
+  // Check political keywords in post tags
+  if (tags.some(t => POLITICAL_TAGS.includes(t.toLowerCase()))) return true;
 
   return false;
 }
@@ -934,9 +1064,12 @@ async function run() {
       if (authorDid === did) continue;
       if (!isOriginalPost(post)) continue;
       if (isNSFW(post)) {
-        console.log(`   🔞 Skipped NSFW post by @${post.author?.handle}`);
+        console.log(`   🚫 Skipped filtered post (NSFW/political) by @${post.author?.handle}`);
         continue;
       }
+
+      // Quick gaming relevance check — skip if no gaming terms found
+      if (!isGamingRelevant(post)) continue;
       const existing     = latestPostByAuthor.get(authorDid);
       const postDate     = new Date(post.indexedAt || post.record?.createdAt || 0);
       const existingDate = existing ? new Date(existing.indexedAt || existing.record?.createdAt || 0) : null;
@@ -989,6 +1122,16 @@ async function run() {
     const { pass, reason } = await passesQualityFilters(authorDid, post, token, stats);
     if (!pass) {
       console.log(`   🚫 Skipped @${post.author?.handle} — ${reason}`);
+      likedThisRun.add(authorDid);
+      await sleep(300);
+      continue;
+    }
+
+    // AI relevance check for ambiguous posts (only fires if no obvious gaming terms)
+    const postText = post.record?.text || "";
+    const relevant = await isGamingRelevantAI(postText);
+    if (!relevant) {
+      console.log(`   🎯 Skipped @${post.author?.handle} — post not gaming related`);
       likedThisRun.add(authorDid);
       await sleep(300);
       continue;
