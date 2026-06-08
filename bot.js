@@ -72,17 +72,18 @@ const DEFAULT_TERMS = [
 // NSFW tags — kept tight to avoid false positives on gaming content
 const NSFW_TAGS = [
   "nsfw", "18+", "onlyfans", "lewd", "hentai",
-  "nude", "naked", "porn", "xxx", "erotic", "fetish",
+  "nude", "naked", "porn", "xxx", "erotic", "fetish", "furry", 
 ];
 
 // Political keywords — posts containing these will be skipped entirely
 const POLITICAL_TAGS = [
   "democrat", "republican", "maga", "biden", "trump", "harris", "election",
-  "vote", "voted", "voting", "congress", "senate", "gop", "liberal", "conservative",
+  "vote", "i voted", "voting", "congress", "senate", "gop", "liberal", "conservative",
   "socialist", "fascist", "antifa", "blm", "abortion", "prolife", "prochoice",
   "gun control", "2ndamendment", "immigration", "deportation", "lgbtq", "transgender",
   "pride parade", "political", "politics", "propaganda", "protest", "activist",
-  "rally", "inauguration", "presidency", "whitehouse", "capitol",
+  "rally", "inauguration", "presidency", "whitehouse", "capitol", "israel", "iran",
+  "pride",
 ];
 
 const NSFW_ACCOUNTS = new Set(); // populated from blocklist
