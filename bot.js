@@ -72,18 +72,17 @@ const DEFAULT_TERMS = [
 // NSFW tags — kept tight to avoid false positives on gaming content
 const NSFW_TAGS = [
   "nsfw", "18+", "onlyfans", "lewd", "hentai",
-  "nude", "naked", "porn", "xxx", "erotic", "fetish", "furry", 
+  "nude", "naked", "porn", "xxx", "erotic", "fetish",
 ];
 
 // Political keywords — posts containing these will be skipped entirely
 const POLITICAL_TAGS = [
   "democrat", "republican", "maga", "biden", "trump", "harris", "election",
-  "vote", "i voted", "voting", "congress", "senate", "gop", "liberal", "conservative",
+  "vote", "voted", "voting", "congress", "senate", "gop", "liberal", "conservative",
   "socialist", "fascist", "antifa", "blm", "abortion", "prolife", "prochoice",
   "gun control", "2ndamendment", "immigration", "deportation", "lgbtq", "transgender",
   "pride parade", "political", "politics", "propaganda", "protest", "activist",
-  "rally", "inauguration", "presidency", "whitehouse", "capitol", "israel", "iran",
-  "pride",
+  "rally", "inauguration", "presidency", "whitehouse", "capitol",
 ];
 
 const NSFW_ACCOUNTS = new Set(); // populated from blocklist
@@ -361,28 +360,43 @@ async function passesQualityFilters(authorDid, post, token, stats) {
     }
   }
 
-  // Check profile bio, display name, and handle for NSFW/political content
-  const profileText = [
-    profile.description || "",
-    profile.displayName || "",
-    profile.handle      || "",
-  ].join(" ").toLowerCase();
+  // ── Profile content checks ────────────────────────────────
+  const bio         = (profile.description || "").toLowerCase();
+  const displayName = (profile.displayName  || "").toLowerCase();
+  const handle      = (profile.handle       || "").toLowerCase();
+  const profileFull = [bio, displayName, handle].join(" ");
 
-  if (NSFW_TAGS.some(tag => new RegExp(`\b${tag}\b`, "i").test(profileText))) {
+  // Check Bluesky official account labels first (most reliable)
+  const profileLabels = profile.labels || [];
+  if (profileLabels.some(l => ["porn", "sexual", "nudity", "graphic-media", "adult-only", "nsfw"].includes(l.val))) {
+    stats.filteredCount = (stats.filteredCount || 0) + 1;
+    return { pass: false, reason: `NSFW account label` };
+  }
+
+  // NSFW keyword check — use simple includes (no word boundary needed for explicit terms)
+  if (NSFW_TAGS.some(tag => profileFull.includes(tag))) {
     stats.filteredCount = (stats.filteredCount || 0) + 1;
     return { pass: false, reason: `NSFW profile bio/name` };
   }
 
-  if (POLITICAL_TAGS.some(tag => new RegExp(`\b${tag}\b`, "i").test(profileText))) {
+  // NSFW emoji patterns commonly used in adult profiles
+  const NSFW_EMOJI = ["🔞", "💦", "🍆", "🍑", "👅", "🔥💦", "💋", "🥵"];
+  const rawBio = profile.description || "";
+  if (NSFW_EMOJI.some(e => rawBio.includes(e))) {
+    stats.filteredCount = (stats.filteredCount || 0) + 1;
+    return { pass: false, reason: `NSFW emoji in profile` };
+  }
+
+  // Political keyword check
+  if (POLITICAL_TAGS.some(tag => profileFull.includes(tag))) {
     stats.filteredCount = (stats.filteredCount || 0) + 1;
     return { pass: false, reason: `political profile bio/name` };
   }
 
-  // Check Bluesky profile labels (e.g. adult-only accounts)
-  const profileLabels = profile.labels || [];
-  if (profileLabels.some(l => ["porn", "sexual", "nudity", "graphic-media", "adult-only"].includes(l.val))) {
+  // Non-English bio check — skip accounts whose bio is primarily non-English
+  if (bio.length > 10 && !isEnglishText(bio)) {
     stats.filteredCount = (stats.filteredCount || 0) + 1;
-    return { pass: false, reason: `NSFW account label` };
+    return { pass: false, reason: `non-English profile bio` };
   }
 
   return { pass: true, reason: "ok" };
