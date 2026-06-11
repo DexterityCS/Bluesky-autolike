@@ -7,7 +7,8 @@ const BLUESKY_HANDLE     = process.env.BLUESKY_HANDLE;
 const BLUESKY_PASSWORD   = process.env.BLUESKY_PASSWORD;
 const ANTHROPIC_API_KEY  = process.env.ANTHROPIC_API_KEY;
 const ACTIONS_PER_RUN    = parseInt(process.env.ACTIONS_PER_RUN || "25");
-const INACTIVE_DAYS      = 60;
+const INACTIVE_DAYS      = 60;   // unfollow if inactive this long (still used as secondary check)
+const FOLLOW_BACK_DAYS   = 14;   // unfollow if not followed back within this many days
 
 // Engagement quality filters
 const MIN_FOLLOWERS      = 10;
@@ -71,18 +72,43 @@ const DEFAULT_TERMS = [
 // NSFW tags and keywords to filter out — posts containing these will be skipped
 // NSFW tags — kept tight to avoid false positives on gaming content
 const NSFW_TAGS = [
-  "nsfw", "18+", "onlyfans", "lewd", "hentai",
-  "nude", "naked", "porn", "xxx", "erotic", "fetish",
+  // Explicit terms
+  "nsfw", "18+", "onlyfans", "lewd", "hentai", "nude", "naked", "porn",
+  "xxx", "erotic", "fetish", "adult content", "explicit content", "kink",
+  "bdsm", "nudes", "slutty", "sexy pics", "hot pics", "fansly", "manyvids",
+  "admireme", "patreon nsfw", "spicy content", "thirst trap", "thirsty",
+  "cam girl", "camgirl", "camboy", "sex work", "sexwork", "sw friendly",
+  "horny", "slutty", "booty", "ass pics", "topless", "lingerie model",
+  "only fans", "of link", "of account", "subscribe to my",
 ];
 
 // Political keywords — posts containing these will be skipped entirely
 const POLITICAL_TAGS = [
-  "democrat", "republican", "maga", "biden", "trump", "harris", "election",
-  "vote", "voted", "voting", "congress", "senate", "gop", "liberal", "conservative",
-  "socialist", "fascist", "antifa", "blm", "abortion", "prolife", "prochoice",
-  "gun control", "2ndamendment", "immigration", "deportation", "lgbtq", "transgender",
-  "pride parade", "political", "politics", "propaganda", "protest", "activist",
-  "rally", "inauguration", "presidency", "whitehouse", "capitol",
+  // US Politics
+  "democrat", "republican", "maga", "biden", "trump", "harris", "obama",
+  "desantis", "aoc", "bernie", "pelosi", "mcconnell", "election", "ballot",
+  "vote", "voted", "voting", "voter", "congress", "senate", "senate", "gop",
+  "liberal", "conservative", "leftist", "right wing", "far right", "far left",
+  "socialist", "fascist", "communist", "antifa", "blm", "black lives matter",
+  "abortion", "prolife", "prochoice", "pro-life", "pro-choice", "roe v wade",
+  "gun control", "gun rights", "2nd amendment", "nra", "ar-15",
+  "immigration", "deportation", "border wall", "illegal alien",
+  "white supremac", "white nationalist", "kkk", "neo nazi",
+  // Social/identity politics
+  "lgbtq", "transgender", "trans rights", "pride parade", "pride month",
+  "gay rights", "homophob", "transphob",
+  // General political
+  "political", "politics", "propaganda", "protest", "activist", "activism",
+  "rally", "inauguration", "presidency", "whitehouse", "white house", "capitol",
+  "supreme court", "constitution", "amendment", "bill of rights",
+  "deep state", "mainstream media", "msm", "fake news", "cancel culture",
+  "woke", "anti-woke", "crt", "critical race theory",
+];
+
+// NSFW emoji — checked separately since regex word boundary doesn't catch emoji
+const NSFW_EMOJI_LIST = [
+  "🔞", "💦", "🍆", "🍑", "👅", "💋", "🥵", "😈", "🤤",
+  "🍒", "🌶️", "🔥🔥🔥", "💯🔥",
 ];
 
 const NSFW_ACCOUNTS = new Set(); // populated from blocklist
@@ -370,32 +396,36 @@ async function passesQualityFilters(authorDid, post, token, stats) {
   const profileLabels = profile.labels || [];
   if (profileLabels.some(l => ["porn", "sexual", "nudity", "graphic-media", "adult-only", "nsfw"].includes(l.val))) {
     stats.filteredCount = (stats.filteredCount || 0) + 1;
+    autoBlock(authorDid, "NSFW account label");
     return { pass: false, reason: `NSFW account label` };
   }
 
   // NSFW keyword check — use simple includes (no word boundary needed for explicit terms)
   if (NSFW_TAGS.some(tag => profileFull.includes(tag))) {
     stats.filteredCount = (stats.filteredCount || 0) + 1;
+    autoBlock(authorDid, `NSFW keyword in profile: ${NSFW_TAGS.find(t => profileFull.includes(t))}`);
     return { pass: false, reason: `NSFW profile bio/name` };
   }
 
   // NSFW emoji patterns commonly used in adult profiles
-  const NSFW_EMOJI = ["🔞", "💦", "🍆", "🍑", "👅", "🔥💦", "💋", "🥵"];
   const rawBio = profile.description || "";
-  if (NSFW_EMOJI.some(e => rawBio.includes(e))) {
+  if (NSFW_EMOJI_LIST.some(e => rawBio.includes(e))) {
     stats.filteredCount = (stats.filteredCount || 0) + 1;
+    autoBlock(authorDid, "NSFW emoji in profile");
     return { pass: false, reason: `NSFW emoji in profile` };
   }
 
   // Political keyword check
   if (POLITICAL_TAGS.some(tag => profileFull.includes(tag))) {
     stats.filteredCount = (stats.filteredCount || 0) + 1;
+    autoBlock(authorDid, `political keyword in profile: ${POLITICAL_TAGS.find(t => profileFull.includes(t))}`);
     return { pass: false, reason: `political profile bio/name` };
   }
 
   // Non-English bio check — skip accounts whose bio is primarily non-English
   if (bio.length > 10 && !isEnglishText(bio)) {
     stats.filteredCount = (stats.filteredCount || 0) + 1;
+    autoBlock(authorDid, "non-English profile bio");
     return { pass: false, reason: `non-English profile bio` };
   }
 
@@ -514,28 +544,43 @@ async function searchPosts(term, token) {
 }
 
 // ── Unfollow inactive non-followers ──────────────────────
-async function runUnfollows(did, token, following, followers) {
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - INACTIVE_DAYS);
+async function runUnfollows(did, token, following, followers, stats) {
+  const followBackCutoff = new Date();
+  followBackCutoff.setDate(followBackCutoff.getDate() - FOLLOW_BACK_DAYS);
+
   let totalUnfollows = 0;
-  console.log(`\n🧹 Checking for inactive non-followers...`);
+  console.log(`\n🧹 Checking for non-followers (14-day follow-back window)...`);
+
   for (const [targetDid, { rkey, handle }] of following.entries()) {
+    // Always keep mutual followers
     if (followers.has(targetDid)) continue;
     if (!rkey) continue;
-    const lastPost = await getLastPostDate(targetDid, token);
-    const isInactive = !lastPost || lastPost < cutoff;
-    if (isInactive) {
-      const ok = await unfollowAccount(did, rkey, token);
-      if (ok) {
-        totalUnfollows++;
-        const str = lastPost ? lastPost.toLocaleDateString() : "never";
-        console.log(`   🗑️  Unfollowed @${handle} (last post: ${str})`);
-        following.delete(targetDid);
-      }
-      await sleep(800);
+
+    // Check when we followed this account
+    const followedAt = stats.followedAt?.[targetDid]?.followedAt
+      ? new Date(stats.followedAt[targetDid].followedAt)
+      : null;
+
+    // If we have a follow date and it's within 14 days, give them more time
+    if (followedAt && followedAt > followBackCutoff) {
+      const daysLeft = Math.ceil((followedAt - followBackCutoff) / 86400000) + FOLLOW_BACK_DAYS;
+      console.log(`   ⏳ @${handle} — followed ${Math.floor((Date.now() - followedAt) / 86400000)}d ago, waiting ${FOLLOW_BACK_DAYS - Math.floor((Date.now() - followedAt) / 86400000)}d more`);
+      continue;
     }
+
+    // 14 days have passed and they haven't followed back — unfollow
+    const ok = await unfollowAccount(did, rkey, token);
+    if (ok) {
+      totalUnfollows++;
+      console.log(`   🗑️  Unfollowed @${handle} (not followed back in ${FOLLOW_BACK_DAYS}+ days)`);
+      following.delete(targetDid);
+      // Remove from followedAt tracking
+      if (stats.followedAt?.[targetDid]) delete stats.followedAt[targetDid];
+    }
+    await sleep(800);
   }
-  console.log(`✅ Unfollowed ${totalUnfollows} inactive non-followers`);
+
+  console.log(`✅ Unfollowed ${totalUnfollows} non-followers`);
   return totalUnfollows;
 }
 
@@ -877,6 +922,15 @@ function saveBlockList(blockList) {
   fs.writeFileSync(BLOCK_LIST_PATH, JSON.stringify([...blockList], null, 2));
 }
 
+function autoBlock(did, reason) {
+  const list = loadBlockList();
+  if (!list.has(did)) {
+    list.add(did);
+    saveBlockList(list);
+    console.log(`   🚫 Auto-blocked ${did} — ${reason}`);
+  }
+}
+
 function addToBlockList(did, handle) {
   const list = loadBlockList();
   list.add(did);
@@ -1049,7 +1103,7 @@ async function run() {
   // Unfollow inactive non-followers — only run at designated hour
   let totalUnfollows = 0;
   if (shouldRunUnfollows()) {
-    totalUnfollows = await runUnfollows(did, token, following, followers);
+    totalUnfollows = await runUnfollows(did, token, following, followers, stats);
   } else {
     console.log(`⏰ Unfollow check skipped — runs at ${UNFOLLOW_HOUR_UTC}:00 UTC`);
   }
@@ -1080,6 +1134,7 @@ async function run() {
       if (!isOriginalPost(post)) continue;
       if (isNSFW(post)) {
         console.log(`   🚫 Skipped filtered post (NSFW/political) by @${post.author?.handle}`);
+        if (authorDid) autoBlock(authorDid, "NSFW/political post content");
         continue;
       }
 
@@ -1179,7 +1234,7 @@ async function run() {
             if (followed) {
               totalFollows++;
               following.set(authorDid, { handle: post.author?.handle });
-              stats.followedAt[authorDid] = { handle: post.author?.handle, followedBack: false };
+              stats.followedAt[authorDid] = { handle: post.author?.handle, followedBack: false, followedAt: new Date().toISOString() };
               stats.followBackRate.followed++;
               termFollows[term] = (termFollows[term] || 0) + 1;
               console.log(`   ➕ Followed @${post.author?.handle}`);
@@ -1247,7 +1302,7 @@ async function run() {
       if (followed) {
         totalFollows++;
         following.set(authorDid, { handle: post.author?.handle });
-        stats.followedAt[authorDid] = { handle: post.author?.handle, followedBack: false };
+        stats.followedAt[authorDid] = { handle: post.author?.handle, followedBack: false, followedAt: new Date().toISOString() };
         stats.followBackRate.followed++;
         termFollows[term] = (termFollows[term] || 0) + 1;
         console.log(`   ➕ Followed @${post.author?.handle}`);
