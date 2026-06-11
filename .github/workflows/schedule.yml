@@ -38,6 +38,12 @@ jobs:
           echo "HANDLE is set: ${{ secrets.BLUESKY_HANDLE != '' }}"
           echo "PASSWORD is set: ${{ secrets.BLUESKY_PASSWORD != '' }}"
 
+      - name: Sync Bluesky blocks to blocklist.json
+        env:
+          BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
+          BLUESKY_PASSWORD: ${{ secrets.BLUESKY_PASSWORD }}
+        run: node sync_blocks.js
+
       - name: Run bot
         env:
           BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
@@ -52,6 +58,6 @@ jobs:
         run: |
           git config user.name "dexterityCS Bot"
           git config user.email "bot@dexteritycs"
-          git add stats.json
+          git add stats.json blocklist.json
           git diff --staged --quiet || git commit -m "📊 stats update — $(date +'%Y-%m-%d %H:%M') UTC"
           git push
