@@ -79,7 +79,8 @@ const NSFW_TAGS = [
   "admireme", "patreon nsfw", "spicy content", "thirst trap", "thirsty",
   "cam girl", "camgirl", "camboy", "sex work", "sexwork", "sw friendly",
   "horny", "slutty", "booty", "ass pics", "topless", "lingerie model",
-  "only fans", "of link", "of account", "subscribe to my", "mdni", "dni",
+  "only fans", "of link", "of account", "subscribe to my", "mdni", "dni", "bratty", 
+  "brat", "submissive", 
 ];
 
 // Political keywords — posts containing these will be skipped entirely
