@@ -79,8 +79,7 @@ const NSFW_TAGS = [
   "admireme", "patreon nsfw", "spicy content", "thirst trap", "thirsty",
   "cam girl", "camgirl", "camboy", "sex work", "sexwork", "sw friendly",
   "horny", "slutty", "booty", "ass pics", "topless", "lingerie model",
-  "only fans", "of link", "of account", "subscribe to my", "mdni", "dni", "bratty", 
-  "brat", "submissive", 
+  "only fans", "of link", "of account", "subscribe to my", "mdni", "dni", 
 ];
 
 // Political keywords — posts containing these will be skipped entirely
@@ -97,7 +96,8 @@ const POLITICAL_TAGS = [
   "white supremac", "white nationalist", "kkk", "neo nazi",
   // Social/identity politics
   "lgbtq", "transgender", "trans rights", "pride parade", "pride month", "pride",
-  "gay rights", "homophob", "transphob",
+  "gay rights", "homophob", "transphob", "furry", "bratty", 
+  "brat", "submissive",
   // General political
   "political", "politics", "propaganda", "protest", "activist", "activism",
   "rally", "inauguration", "presidency", "whitehouse", "white house", "capitol",
