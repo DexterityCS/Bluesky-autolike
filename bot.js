@@ -79,7 +79,16 @@ const NSFW_TAGS = [
   "admireme", "patreon nsfw", "spicy content", "thirst trap", "thirsty",
   "cam girl", "camgirl", "camboy", "sex work", "sexwork", "sw friendly",
   "horny", "slutty", "booty", "ass pics", "topless", "lingerie model",
-  "only fans", "of link", "of account", "subscribe to my", "mdni", "dni", 
+  "only fans", "of link", "of account", "subscribe to my", "mdni", "dni",
+  // Kink/BDSM lifestyle
+  "bratty", "submissive", "dominant", "domme", "femdom", "findom",
+  "daddy dom", "mommy dom", "owned by", "collared", "pet play",
+  "little space", "age play", "ddlg", "mdlg",
+  // Furry
+  "furry", "fursona", "fursuit", "yiff",
+  // Egirl/aesthetic NSFW adjacent
+  "egirl", "e-girl", "bunny girl",
+  "brat ",
 ];
 
 // Political keywords — posts containing these will be skipped entirely
@@ -96,8 +105,11 @@ const POLITICAL_TAGS = [
   "white supremac", "white nationalist", "kkk", "neo nazi",
   // Social/identity politics
   "lgbtq", "transgender", "trans rights", "pride parade", "pride month", "pride",
-  "gay rights", "homophob", "transphob", "furry", "bratty", 
-  "brat", "submissive",
+  "gay rights", "homophob", "transphob",
+  // Gender identity
+  "nonbinary", "non-binary", "enby", "they/them", "she/her", "he/him",
+  "genderfluid", "gender fluid", "agender", "two spirit",
+  "queer", "sapphic", "achillean", "aroace", "asexual", "bisexual",
   // General political
   "political", "politics", "propaganda", "protest", "activist", "activism",
   "rally", "inauguration", "presidency", "whitehouse", "white house", "capitol",
@@ -270,6 +282,14 @@ async function getLatestPost(actorDid, token) {
   return res.body.feed[0].post;
 }
 
+// ── Content filter helpers ────────────────────────────────
+
+// Simple includes-based check (works correctly for multi-word phrases)
+function containsFilteredTag(text, tagList) {
+  const lower = text.toLowerCase();
+  return tagList.some(tag => lower.includes(tag));
+}
+
 // ── Quality filters ───────────────────────────────────────
 
 // ── Gaming relevance check ────────────────────────────────
@@ -322,7 +342,7 @@ async function isGamingRelevantAI(postText) {
 
   try {
     const body = JSON.stringify({
-      model: "claude-opus-4-5",
+      model: "claude-sonnet-4-6",
       max_tokens: 10,
       system: "You are a content classifier. Answer only YES or NO.",
       messages: [{
@@ -401,8 +421,8 @@ async function passesQualityFilters(authorDid, post, token, stats) {
     return { pass: false, reason: `NSFW account label` };
   }
 
-  // NSFW keyword check — use simple includes (no word boundary needed for explicit terms)
-  if (NSFW_TAGS.some(tag => profileFull.includes(tag))) {
+  // NSFW keyword check — plain includes (handles multi-word tags correctly)
+  if (containsFilteredTag(profileFull, NSFW_TAGS)) {
     stats.filteredCount = (stats.filteredCount || 0) + 1;
     autoBlock(authorDid, `NSFW keyword in profile: ${NSFW_TAGS.find(t => profileFull.includes(t))}`);
     return { pass: false, reason: `NSFW profile bio/name` };
@@ -416,8 +436,8 @@ async function passesQualityFilters(authorDid, post, token, stats) {
     return { pass: false, reason: `NSFW emoji in profile` };
   }
 
-  // Political keyword check
-  if (POLITICAL_TAGS.some(tag => profileFull.includes(tag))) {
+  // Political keyword check — plain includes (handles multi-word tags correctly)
+  if (containsFilteredTag(profileFull, POLITICAL_TAGS)) {
     stats.filteredCount = (stats.filteredCount || 0) + 1;
     autoBlock(authorDid, `political keyword in profile: ${POLITICAL_TAGS.find(t => profileFull.includes(t))}`);
     return { pass: false, reason: `political profile bio/name` };
@@ -437,18 +457,42 @@ async function passesQualityFilters(authorDid, post, token, stats) {
 async function generateReply(postText, authorHandle, persona = "friendly") {
   if (!ANTHROPIC_API_KEY) return null;
 
-  // Only reply to English posts
-  if (!isEnglishText(postText)) {
-    console.log(`   🌐 Skipped reply — non-English post`);
-    return null;
+  // Only reply to English posts — AI language check
+  try {
+    const langCheck = JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 10,
+      system: "You are a language detector. Answer only YES or NO.",
+      messages: [{
+        role: "user",
+        content: `Is this text written in English? Answer only YES or NO.\n\n"${postText.slice(0, 300)}"`
+      }]
+    });
+    const langRes = await request({
+      hostname: "api.anthropic.com",
+      path: "/v1/messages",
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+      },
+    }, langCheck);
+    const isEnglish = langRes.body.content?.[0]?.text?.trim().toUpperCase() === "YES";
+    if (!isEnglish) {
+      console.log(`   🌐 Skipped reply — non-English post (AI detected)`);
+      return null;
+    }
+  } catch {
+    // fail open — if check errors, fall through to reply attempt
   }
 
-  // Never reply to NSFW or political posts
-  if (POLITICAL_TAGS.some(tag => new RegExp(`\b${tag}\b`, "i").test(postText.toLowerCase()))) {
+  // Never reply to political or NSFW posts — use plain includes for reliable multi-word matching
+  if (containsFilteredTag(postText, POLITICAL_TAGS)) {
     console.log(`   🚫 Skipped reply — political post`);
     return null;
   }
-  if (NSFW_TAGS.some(tag => new RegExp(`\b${tag}\b`, "i").test(postText.toLowerCase()))) {
+  if (containsFilteredTag(postText, NSFW_TAGS)) {
     console.log(`   🚫 Skipped reply — NSFW post`);
     return null;
   }
@@ -472,7 +516,7 @@ async function generateReply(postText, authorHandle, persona = "friendly") {
   else if (text.includes("terraria")) gameContext = "Terraria";
 
   const body = JSON.stringify({
-    model: "claude-opus-4-5",
+    model: "claude-sonnet-4-6",
     max_tokens: 150,
     system: `You are Dexterity (@dexteritycs.bsky.social), a gamer and content creator who plays CS2, Apex Legends, Rainbow Six Siege, Overwatch, Minecraft, and Terraria. Write short, genuine, conversational replies to gaming posts. ${instruction} Sound like a real gamer — not a bot. Never use emojis excessively. Always reply in English only. Max 200 characters. Output only the reply text, nothing else.`,
     messages: [{
@@ -846,7 +890,7 @@ function isEnglishText(text) {
   return true;
 }
 
-// ── NSFW filter ───────────────────────────────────────────
+// ── NSFW / political filter ───────────────────────────────
 function isNSFW(post) {
   const text   = (post.record?.text || "").toLowerCase();
   const labels = post.labels || [];
@@ -855,14 +899,14 @@ function isNSFW(post) {
   // Check Bluesky's built-in content labels
   if (labels.some(l => ["porn", "sexual", "nudity", "graphic-media"].includes(l.val))) return true;
 
-  // Check post text for NSFW keywords (word boundary match to reduce false positives)
-  if (NSFW_TAGS.some(tag => new RegExp(`\\b${tag}\\b`, "i").test(text))) return true;
+  // Check post text for NSFW keywords — plain includes (handles multi-word tags correctly)
+  if (containsFilteredTag(text, NSFW_TAGS)) return true;
 
   // Check post tags for NSFW
   if (tags.some(t => NSFW_TAGS.includes(t.toLowerCase()))) return true;
 
-  // Check political keywords in text
-  if (POLITICAL_TAGS.some(tag => new RegExp(`\\b${tag}\\b`, "i").test(text))) return true;
+  // Check political keywords in text — plain includes (handles multi-word tags correctly)
+  if (containsFilteredTag(text, POLITICAL_TAGS)) return true;
 
   // Check political keywords in post tags
   if (tags.some(t => POLITICAL_TAGS.includes(t.toLowerCase()))) return true;
@@ -976,7 +1020,7 @@ async function checkAndPostMilestones(followerCount, stats, token, did) {
       let postText;
       if (ANTHROPIC_API_KEY) {
         const body = JSON.stringify({
-          model: "claude-opus-4-5", max_tokens: 200,
+          model: "claude-sonnet-4-6", max_tokens: 200,
           system: "You are Dexterity (@dexteritycs.bsky.social), a CS2 streamer. Write a short genuine excited Bluesky post celebrating a follower milestone. Sound like a real streamer — grateful but not cringe. Include the milestone number. Max 250 chars. Output only the post text.",
           messages: [{ role: "user", content: `Write a Bluesky post celebrating hitting ${milestone} followers. Keep it real and personal.` }]
         });
@@ -1016,7 +1060,7 @@ async function checkAndPostWeeklySummary(stats, token, did, followerCount) {
   let postText;
   if (ANTHROPIC_API_KEY) {
     const body = JSON.stringify({
-      model: "claude-opus-4-5", max_tokens: 250,
+      model: "claude-sonnet-4-6", max_tokens: 250,
       system: "You are Dexterity (@dexteritycs.bsky.social), a CS2 streamer. Write a weekly stats recap post for Bluesky. Sound natural and conversational. Max 280 chars. Output only the post text.",
       messages: [{ role: "user", content: `Weekly Bluesky recap:\n- New followers: +${weeklyGain}\n- Total: ${followerCount}\n- Likes given: ${stats.totalLikes || 0}\n- Follow-back rate: ${fbRate}%\nInclude CS2/streaming hashtags.` }]
     });
