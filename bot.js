@@ -95,7 +95,7 @@ const POLITICAL_TAGS = [
   "immigration", "deportation", "border wall", "illegal alien",
   "white supremac", "white nationalist", "kkk", "neo nazi",
   // Social/identity politics
-  "lgbtq", "transgender", "trans rights", "pride parade", "pride month",
+  "lgbtq", "transgender", "trans rights", "pride parade", "pride month", "pride",
   "gay rights", "homophob", "transphob",
   // General political
   "political", "politics", "propaganda", "protest", "activist", "activism",
