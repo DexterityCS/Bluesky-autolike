@@ -978,7 +978,7 @@ async function getMutualNetwork(did, token) {
 // ── Smart unfollow timing ─────────────────────────────────
 function shouldRunUnfollows() {
   const hour = new Date().getUTCHours();
-  return hour === UNFOLLOW_HOUR_UTC;
+  return hour >= 11 && hour <= 13;
 }
 
 // ── Reply persona ─────────────────────────────────────────
