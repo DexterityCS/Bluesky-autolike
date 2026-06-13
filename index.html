@@ -788,8 +788,16 @@
 
   const ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions`;
   const DISPATCH_URL = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/${WORKFLOW_FILE}/dispatches`;
-
   const STATS_URL = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/stats.json`;
+
+  const DEFAULT_TERMS = [
+    "#CS2", "#CounterStrike", "#CounterStrike2", "#CS2clips", "CS2", "counter-strike",
+    "#ApexLegends", "#Apex", "apex legends",
+    "#RainbowSixSiege", "#R6Siege", "#R6",
+    "#Overwatch", "#Overwatch2", "#OW2",
+    "#Minecraft", "minecraft",
+    "#Terraria", "terraria",
+  ];
 
   // Fetch real stats from stats.json in the repo via GitHub API (no CDN cache)
   async function fetchStats() {
