@@ -730,6 +730,48 @@
     </div>
   </div>
 
+  <!-- Term Follow-Back Rate -->
+  <div class="panel" style="margin-bottom:16px;">
+    <div class="panel-header">
+      <span class="panel-title">Term Follow-Back Rate</span>
+      <span style="font-size:11px;color:var(--muted);">Which terms attract accounts that follow back</span>
+    </div>
+    <div class="panel-body" style="padding:0;">
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;padding:10px 20px;border-bottom:1px solid var(--border);color:var(--muted);letter-spacing:1px;font-size:10px;text-transform:uppercase;">
+        <span>Term</span><span>Followed</span><span>Followed Back</span><span>Rate</span>
+      </div>
+      <div id="term-followback-rows" style="color:var(--muted);padding:14px 20px;font-size:11px;">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Reply Persona Stats -->
+  <div class="panel" style="margin-bottom:16px;">
+    <div class="panel-header">
+      <span class="panel-title">Reply Persona Performance</span>
+      <span style="font-size:11px;color:var(--muted);">Which tone gets the most engagement</span>
+    </div>
+    <div class="panel-body" style="padding:0;">
+      <div style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr 1fr;padding:10px 20px;border-bottom:1px solid var(--border);color:var(--muted);letter-spacing:1px;font-size:10px;text-transform:uppercase;">
+        <span>Persona</span><span>Sent</span><span>Liked</span><span>Replied To</span><span>Engage %</span>
+      </div>
+      <div id="persona-stats-rows" style="color:var(--muted);padding:14px 20px;font-size:11px;">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Filter Hit Log -->
+  <div class="panel" style="margin-bottom:16px;">
+    <div class="panel-header">
+      <span class="panel-title">Filter Hit Log</span>
+      <span style="font-size:11px;color:var(--muted);">Last 100 blocked accounts</span>
+    </div>
+    <div class="panel-body" style="padding:0;max-height:300px;overflow-y:auto;">
+      <div style="display:grid;grid-template-columns:1.5fr 2fr 1.5fr;padding:10px 20px;border-bottom:1px solid var(--border);color:var(--muted);letter-spacing:1px;font-size:10px;text-transform:uppercase;position:sticky;top:0;background:var(--surface);">
+        <span>Handle</span><span>Reason</span><span>Time</span>
+      </div>
+      <div id="filter-hit-rows" style="color:var(--muted);padding:14px 20px;font-size:11px;">Loading...</div>
+    </div>
+  </div>
+
   <footer>
     <span>dexterityCS Automation Suite</span>
     <a href="https://twitch.tv/dexterity_cs" target="_blank">twitch.tv/dexterity_cs</a>
@@ -890,6 +932,68 @@
             <span style="color:var(--text);">${d.follows}</span>
             <span style="color:var(--muted);">${d.runs}</span>
           </div>`).join("");
+      }
+
+      // Term follow-back rate table
+      const termFbr = data.termFollowBackRate || {};
+      const termFbrRows = document.getElementById("term-followback-rows");
+      const sortedFbr = Object.entries(termFbr)
+        .filter(([, d]) => d.followed > 0)
+        .sort((a, b) => ((b[1].followedBack||0)/b[1].followed) - ((a[1].followedBack||0)/a[1].followed));
+      if (sortedFbr.length === 0) {
+        termFbrRows.textContent = "No data yet — needs a few runs to populate.";
+      } else {
+        termFbrRows.innerHTML = sortedFbr.map(([term, d], i) => {
+          const rate = ((d.followedBack || 0) / d.followed * 100).toFixed(1);
+          const rateColor = parseFloat(rate) >= 5 ? "var(--green)" : parseFloat(rate) >= 2 ? "var(--yellow)" : "var(--accent2)";
+          return `<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;padding:9px 20px;border-bottom:1px solid var(--border);${i === sortedFbr.length-1 ? "border-bottom:none;" : ""}">
+            <span style="color:var(--accent);">${term}</span>
+            <span style="color:var(--text);">${d.followed}</span>
+            <span style="color:var(--text);">${d.followedBack || 0}</span>
+            <span style="color:${rateColor};font-weight:bold;">${rate}%</span>
+          </div>`;
+        }).join("");
+      }
+
+      // Persona stats table
+      const personaStats = data.replyPersonaStats || {};
+      const personaRows = document.getElementById("persona-stats-rows");
+      const personaEntries = Object.entries(personaStats).filter(([, d]) => d.sent > 0);
+      if (personaEntries.length === 0) {
+        personaRows.textContent = "No reply data yet.";
+      } else {
+        personaRows.innerHTML = personaEntries
+          .sort((a, b) => ((b[1].gotLiked||0) + (b[1].gotReplied||0)) - ((a[1].gotLiked||0) + (a[1].gotReplied||0)))
+          .map(([persona, d], i) => {
+            const engageTotal = (d.gotLiked || 0) + (d.gotReplied || 0);
+            const engageRate = d.sent > 0 ? ((engageTotal / d.sent) * 100).toFixed(0) : 0;
+            const rateColor = parseInt(engageRate) >= 30 ? "var(--green)" : parseInt(engageRate) >= 15 ? "var(--yellow)" : "var(--muted)";
+            const personaLabel = { hype: "🔥 Hype", analytical: "🧠 Analytical", friendly: "😊 Friendly" }[persona] || persona;
+            return `<div style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr 1fr;padding:9px 20px;border-bottom:1px solid var(--border);${i === personaEntries.length-1 ? "border-bottom:none;" : ""}">
+              <span style="color:var(--text);">${personaLabel}</span>
+              <span style="color:var(--accent);">${d.sent}</span>
+              <span style="color:var(--green);">${d.gotLiked || 0}</span>
+              <span style="color:var(--accent2);">${d.gotReplied || 0}</span>
+              <span style="color:${rateColor};font-weight:bold;">${engageRate}%</span>
+            </div>`;
+          }).join("");
+      }
+
+      // Filter hit log
+      const filterHits = data.filterHitLog || [];
+      const filterRows = document.getElementById("filter-hit-rows");
+      if (filterHits.length === 0) {
+        filterRows.textContent = "No filter hits recorded yet.";
+      } else {
+        filterRows.innerHTML = filterHits.map((hit, i) => {
+          const d = new Date(hit.at);
+          const timeStr = d.toLocaleDateString([], {month:"short", day:"numeric"}) + " " + d.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+          return `<div style="display:grid;grid-template-columns:1.5fr 2fr 1.5fr;padding:8px 20px;border-bottom:1px solid var(--border);${i === filterHits.length-1 ? "border-bottom:none;" : ""}">
+            <span style="color:var(--accent2);">@${hit.handle || "unknown"}</span>
+            <span style="color:var(--muted);font-size:10px;">${hit.reason}</span>
+            <span style="color:var(--muted);font-size:10px;">${timeStr}</span>
+          </div>`;
+        }).join("");
       }
     } catch (e) {
       console.warn("Could not fetch stats.json:", e.message);

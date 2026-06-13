@@ -11,7 +11,7 @@ const INACTIVE_DAYS      = 60;   // unfollow if inactive this long (still used a
 const FOLLOW_BACK_DAYS   = 14;   // unfollow if not followed back within this many days
 
 // Engagement quality filters
-const MIN_FOLLOWERS      = 10;
+const MIN_FOLLOWERS      = 25;
 const MIN_ACCOUNT_DAYS   = 30;
 const MAX_POST_AGE_DAYS  = 7;
 const MAX_FOLLOW_RATIO   = 10; // following/followers ratio — skip if above this (spam signal)
@@ -21,7 +21,7 @@ const DAILY_ACTION_CAP   = 200;
 const HOURLY_LIMIT       = 60;
 
 // Reply config — 1 in every N liked posts gets a reply
-const REPLY_FREQUENCY      = 5;
+const REPLY_FREQUENCY      = 3;
 const REPLY_COOLDOWN_DAYS  = 7;    // don't reply to same account more than once per X days
 const MIN_REPLY_TEXT_LEN   = 30;   // minimum post text length to attempt a reply
 const DISCORD_WEBHOOK_URL  = process.env.DISCORD_WEBHOOK_URL || null; // optional run summary
@@ -142,11 +142,14 @@ function loadStats() {
     followerHistory: [],
     termPerformance: {},
     filteredCount: 0,
+    filterHitLog: [],            // last 100 filter hits with reason + keyword
     replyEngagement: { sent: 0, gotLiked: 0, gotReplied: 0 },
+    replyPersonaStats: {},       // per-persona engagement tracking
     milestonesCelebrated: [],
     lastWeeklySummary: null,
-    runHistory: [],          // last 10 runs for dashboard table
-    actionsHistory: [],      // recent run action counts for spike detection
+    runHistory: [],              // last 10 runs for dashboard table
+    actionsHistory: [],          // recent run action counts for spike detection
+    termFollowBackRate: {},      // follow-back rate per search term
   };
   if (!fs.existsSync(STATS_PATH)) return defaults;
   try { return { ...defaults, ...JSON.parse(fs.readFileSync(STATS_PATH, "utf8")) }; }
@@ -198,16 +201,29 @@ function request(options, body = null) {
   });
 }
 
-function apiRequest(path, method, body, token) {
-  return request({
-    hostname: "bsky.social",
-    path: `/xrpc/${path}`,
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token && { Authorization: `Bearer ${token}` }),
-    },
-  }, body);
+async function apiRequest(path, method, body, token, retries = 3) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    const res = await request({
+      hostname: "bsky.social",
+      path: `/xrpc/${path}`,
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+    }, body);
+
+    if (res.status === 429) {
+      const retryAfter = res.body?.retryAfter || (attempt * 30);
+      console.warn(`   ⏳ Rate limited — waiting ${retryAfter}s before retry ${attempt}/${retries}`);
+      await sleep(retryAfter * 1000);
+      continue;
+    }
+
+    return res;
+  }
+  console.warn(`   ⚠️  Max retries reached for ${path}`);
+  return { status: 429, body: {} };
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -288,6 +304,24 @@ async function getLatestPost(actorDid, token) {
 function containsFilteredTag(text, tagList) {
   const lower = text.toLowerCase();
   return tagList.some(tag => lower.includes(tag));
+}
+
+// Returns the matched keyword or null
+function findFilteredTag(text, tagList) {
+  const lower = text.toLowerCase();
+  return tagList.find(tag => lower.includes(tag)) || null;
+}
+
+// Log a filter hit to stats (keeps last 100)
+function recordFilterHit(stats, handle, reason, keyword = null) {
+  if (!stats.filterHitLog) stats.filterHitLog = [];
+  stats.filterHitLog.unshift({
+    handle,
+    reason,
+    keyword,
+    at: new Date().toISOString(),
+  });
+  if (stats.filterHitLog.length > 100) stats.filterHitLog.pop();
 }
 
 // ── Quality filters ───────────────────────────────────────
@@ -685,14 +719,20 @@ async function runLikeBackFollowers(did, token, following, followers, stats) {
 
 // ── Follow-back rate ──────────────────────────────────────
 function updateFollowBackRate(stats, followers) {
-  if (!stats.followedAt)     stats.followedAt     = {};
-  if (!stats.followBackRate) stats.followBackRate  = { followed: 0, followedBack: 0 };
+  if (!stats.followedAt)          stats.followedAt          = {};
+  if (!stats.followBackRate)      stats.followBackRate       = { followed: 0, followedBack: 0 };
+  if (!stats.termFollowBackRate)  stats.termFollowBackRate   = {};
   let newFollowBacks = 0;
   for (const [followedDid, info] of Object.entries(stats.followedAt)) {
     if (info.followedBack) continue;
     if (followers.has(followedDid)) {
       stats.followedAt[followedDid].followedBack = true;
       newFollowBacks++;
+      // Update per-term follow-back rate
+      const term = info.term;
+      if (term && stats.termFollowBackRate[term]) {
+        stats.termFollowBackRate[term].followedBack = (stats.termFollowBackRate[term].followedBack || 0) + 1;
+      }
     }
   }
   stats.followBackRate.followedBack += newFollowBacks;
@@ -700,6 +740,15 @@ function updateFollowBackRate(stats, followers) {
     ? ((stats.followBackRate.followedBack / stats.followBackRate.followed) * 100).toFixed(1)
     : "0.0";
   console.log(`📈 Follow-back rate: ${rate}% (${stats.followBackRate.followedBack}/${stats.followBackRate.followed})`);
+  // Log top term follow-back rates
+  const termRates = Object.entries(stats.termFollowBackRate)
+    .filter(([, d]) => d.followed > 0)
+    .map(([term, d]) => ({ term, rate: ((d.followedBack || 0) / d.followed * 100).toFixed(1), followed: d.followed }))
+    .sort((a, b) => parseFloat(b.rate) - parseFloat(a.rate))
+    .slice(0, 3);
+  if (termRates.length > 0) {
+    console.log(`📊 Top term follow-back rates: ${termRates.map(t => `"${t.term}" ${t.rate}% (${t.followed})`).join(", ")}`);
+  }
 }
 
 // ── Growth velocity ───────────────────────────────────────
@@ -874,6 +923,7 @@ function getNetFollowerGain(stats, currentCount) {
 async function checkReplyEngagement(did, token, stats) {
   if (!stats.sentReplies || !stats.sentReplies.length) return;
   if (!stats.replyEngagement) stats.replyEngagement = { sent: 0, gotLiked: 0, gotReplied: 0 };
+  if (!stats.replyPersonaStats) stats.replyPersonaStats = {};
 
   // Only check replies from the last 7 days
   const cutoff = new Date();
@@ -891,8 +941,17 @@ async function checkReplyEngagement(did, token, stats) {
       );
       if (res.status === 200 && res.body.posts?.length) {
         const post = res.body.posts[0];
-        if ((post.likeCount || 0) > 0) { newLikes++; stats.replyEngagement.gotLiked++; }
-        if ((post.replyCount || 0) > 0) { newReplies++; stats.replyEngagement.gotReplied++; }
+        const persona = reply.persona;
+        if ((post.likeCount || 0) > 0) {
+          newLikes++;
+          stats.replyEngagement.gotLiked++;
+          if (persona && stats.replyPersonaStats[persona]) stats.replyPersonaStats[persona].gotLiked = (stats.replyPersonaStats[persona].gotLiked || 0) + 1;
+        }
+        if ((post.replyCount || 0) > 0) {
+          newReplies++;
+          stats.replyEngagement.gotReplied++;
+          if (persona && stats.replyPersonaStats[persona]) stats.replyPersonaStats[persona].gotReplied = (stats.replyPersonaStats[persona].gotReplied || 0) + 1;
+        }
         reply.checkedEngagement = true;
       }
     } catch {}
@@ -901,6 +960,12 @@ async function checkReplyEngagement(did, token, stats) {
 
   if (newLikes + newReplies > 0) {
     console.log(`💬 Reply engagement: ${newLikes} replies got liked, ${newReplies} got replied to`);
+    // Log persona breakdown
+    const personaSummary = Object.entries(stats.replyPersonaStats)
+      .filter(([, d]) => d.sent > 0)
+      .map(([p, d]) => `${p}: ${d.gotLiked || 0}❤️ ${d.gotReplied || 0}💬 / ${d.sent} sent`)
+      .join(", ");
+    if (personaSummary) console.log(`   🎭 Persona breakdown: ${personaSummary}`);
   }
 }
 
@@ -978,7 +1043,7 @@ async function getMutualNetwork(did, token) {
 // ── Smart unfollow timing ─────────────────────────────────
 function shouldRunUnfollows() {
   const hour = new Date().getUTCHours();
-  return hour >= 11 && hour <= 13;
+  return hour === UNFOLLOW_HOUR_UTC;
 }
 
 // ── Reply persona ─────────────────────────────────────────
@@ -998,12 +1063,26 @@ function saveBlockList(blockList) {
   fs.writeFileSync(BLOCK_LIST_PATH, JSON.stringify([...blockList], null, 2));
 }
 
-function autoBlock(did, reason) {
+function autoBlock(did, reason, stats = null, handle = null, following = null, myDid = null, token = null) {
   const list = loadBlockList();
   if (!list.has(did)) {
     list.add(did);
     saveBlockList(list);
-    console.log(`   🚫 Auto-blocked ${did} — ${reason}`);
+    console.log(`   🚫 Auto-blocked ${handle || did} — ${reason}`);
+    // Log filter hit
+    if (stats) recordFilterHit(stats, handle || did, reason);
+    // Auto-unfollow if we're following them
+    if (following && myDid && token && following.has(did)) {
+      const rkey = following.get(did)?.rkey;
+      if (rkey) {
+        unfollowAccount(myDid, rkey, token).then(ok => {
+          if (ok) {
+            following.delete(did);
+            console.log(`   🗑️  Auto-unfollowed @${handle || did} (was following blocked account)`);
+          }
+        }).catch(() => {});
+      }
+    }
   }
 }
 
@@ -1208,9 +1287,15 @@ async function run() {
       if (!authorDid || !post.uri || !post.cid) continue;
       if (authorDid === did) continue;
       if (!isOriginalPost(post)) continue;
+
+      // Skip image-only posts — no text to filter or reply to
+      const postText = (post.record?.text || "").trim();
+      if (postText.length < 5) continue;
+
       if (isNSFW(post)) {
-        console.log(`   🚫 Skipped filtered post (NSFW/political) by @${post.author?.handle}`);
-        if (authorDid) autoBlock(authorDid, "NSFW/political post content");
+        const keyword = findFilteredTag(postText, NSFW_TAGS) || findFilteredTag(postText, POLITICAL_TAGS);
+        console.log(`   🚫 Skipped filtered post (NSFW/political) by @${post.author?.handle}${keyword ? ` [${keyword}]` : ""}`);
+        if (authorDid) autoBlock(authorDid, `NSFW/political post content${keyword ? `: ${keyword}` : ""}`, stats, post.author?.handle, following, did, token);
         continue;
       }
 
@@ -1283,6 +1368,30 @@ async function run() {
       continue;
     }
 
+    // Post text language check — skip non-English posts before liking
+    if (ANTHROPIC_API_KEY && postText.length > 10) {
+      try {
+        const langCheck = JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 10,
+          system: "You are a language detector. Answer only YES or NO.",
+          messages: [{ role: "user", content: `Is this text written in English? Answer only YES or NO.\n\n"${postText.slice(0, 300)}"` }]
+        });
+        const langRes = await request({
+          hostname: "api.anthropic.com", path: "/v1/messages", method: "POST",
+          headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+        }, langCheck);
+        const isEnglish = langRes.body.content?.[0]?.text?.trim().toUpperCase() === "YES";
+        if (!isEnglish) {
+          console.log(`   🌐 Skipped @${post.author?.handle} — non-English post`);
+          recordFilterHit(stats, post.author?.handle, "non-English post text");
+          likedThisRun.add(authorDid);
+          await sleep(300);
+          continue;
+        }
+      } catch { /* fail open */ }
+    }
+
     const postDate  = new Date(post.indexedAt || post.record?.createdAt || 0);
     const lastLiked = stats.lastLikedAt[authorDid] ? new Date(stats.lastLikedAt[authorDid]) : null;
     const term      = postTermMap.get(authorDid) || SEARCH_TERMS[0];
@@ -1310,9 +1419,13 @@ async function run() {
             if (followed) {
               totalFollows++;
               following.set(authorDid, { handle: post.author?.handle });
-              stats.followedAt[authorDid] = { handle: post.author?.handle, followedBack: false, followedAt: new Date().toISOString() };
+              stats.followedAt[authorDid] = { handle: post.author?.handle, followedBack: false, followedAt: new Date().toISOString(), term };
               stats.followBackRate.followed++;
               termFollows[term] = (termFollows[term] || 0) + 1;
+              // Term follow-back tracking
+              if (!stats.termFollowBackRate) stats.termFollowBackRate = {};
+              if (!stats.termFollowBackRate[term]) stats.termFollowBackRate[term] = { followed: 0, followedBack: 0 };
+              stats.termFollowBackRate[term].followed++;
               console.log(`   ➕ Followed @${post.author?.handle}`);
               recordHourlyAction(stats);
               recordDailyAction(stats);
@@ -1358,11 +1471,16 @@ async function run() {
                 authorDid,
                 sentAt: new Date().toISOString(),
                 checkedEngagement: false,
+                persona: currentPersona,
               });
               // Keep only last 50 sent replies
               if (stats.sentReplies.length > 50) stats.sentReplies.shift();
               stats.replyEngagement.sent++;
-              console.log(`   💬 Replied to @${post.author?.handle}: "${replyText}"`);
+              // Track per-persona stats
+              if (!stats.replyPersonaStats) stats.replyPersonaStats = {};
+              if (!stats.replyPersonaStats[currentPersona]) stats.replyPersonaStats[currentPersona] = { sent: 0, gotLiked: 0, gotReplied: 0 };
+              stats.replyPersonaStats[currentPersona].sent++;
+              console.log(`   💬 Replied to @${post.author?.handle} [${currentPersona}]: "${replyText}"`);
               recordHourlyAction(stats);
               recordDailyAction(stats);
             }
@@ -1378,9 +1496,13 @@ async function run() {
       if (followed) {
         totalFollows++;
         following.set(authorDid, { handle: post.author?.handle });
-        stats.followedAt[authorDid] = { handle: post.author?.handle, followedBack: false, followedAt: new Date().toISOString() };
+        stats.followedAt[authorDid] = { handle: post.author?.handle, followedBack: false, followedAt: new Date().toISOString(), term };
         stats.followBackRate.followed++;
         termFollows[term] = (termFollows[term] || 0) + 1;
+        // Term follow-back tracking
+        if (!stats.termFollowBackRate) stats.termFollowBackRate = {};
+        if (!stats.termFollowBackRate[term]) stats.termFollowBackRate[term] = { followed: 0, followedBack: 0 };
+        stats.termFollowBackRate[term].followed++;
         console.log(`   ➕ Followed @${post.author?.handle}`);
         recordHourlyAction(stats);
         recordDailyAction(stats);
