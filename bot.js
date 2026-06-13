@@ -443,8 +443,39 @@ async function passesQualityFilters(authorDid, post, token, stats) {
     return { pass: false, reason: `political profile bio/name` };
   }
 
-  // Non-English bio check — skip accounts whose bio is primarily non-English
-  if (bio.length > 10 && !isEnglishText(bio)) {
+  // Non-English bio check — AI detection to catch Latin-script non-English (German, French, etc.)
+  if (bio.length > 10 && ANTHROPIC_API_KEY) {
+    try {
+      const langCheck = JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 10,
+        system: "You are a language detector. Answer only YES or NO.",
+        messages: [{
+          role: "user",
+          content: `Is this text written in English? Answer only YES or NO.\n\n"${bio.slice(0, 300)}"`
+        }]
+      });
+      const langRes = await request({
+        hostname: "api.anthropic.com",
+        path: "/v1/messages",
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": ANTHROPIC_API_KEY,
+          "anthropic-version": "2023-06-01",
+        },
+      }, langCheck);
+      const isEnglish = langRes.body.content?.[0]?.text?.trim().toUpperCase() === "YES";
+      if (!isEnglish) {
+        stats.filteredCount = (stats.filteredCount || 0) + 1;
+        autoBlock(authorDid, "non-English profile bio (AI detected)");
+        return { pass: false, reason: `non-English profile bio` };
+      }
+    } catch {
+      // fail open — if check errors, don't block on language
+    }
+  } else if (bio.length > 10 && !isEnglishText(bio)) {
+    // fallback if no API key
     stats.filteredCount = (stats.filteredCount || 0) + 1;
     autoBlock(authorDid, "non-English profile bio");
     return { pass: false, reason: `non-English profile bio` };
