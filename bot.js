@@ -655,6 +655,9 @@ async function runUnfollows(did, token, following, followers, stats) {
   const followBackCutoff = new Date();
   followBackCutoff.setDate(followBackCutoff.getDate() - FOLLOW_BACK_DAYS);
 
+  const whitelist = loadWhitelist();
+  if (whitelist.size > 0) console.log(`🛡️  Whitelist loaded — ${whitelist.size} protected accounts`);
+
   let totalUnfollows = 0;
   console.log(`\n🧹 Checking for non-followers (14-day follow-back window)...`);
 
@@ -662,6 +665,12 @@ async function runUnfollows(did, token, following, followers, stats) {
     // Always keep mutual followers
     if (followers.has(targetDid)) continue;
     if (!rkey) continue;
+
+    // Whitelist check — skip protected accounts
+    if (whitelist.has(handle)) {
+      console.log(`   🛡️  Skipped @${handle} — whitelisted`);
+      continue;
+    }
 
     // Check when we followed this account
     const followedAt = stats.followedAt?.[targetDid]?.followedAt
@@ -1050,6 +1059,14 @@ function getReplyPersona(stats) {
   return REPLY_PERSONAS[idx];
 }
 
+
+const WHITELIST_PATH   = "whitelist.json";
+
+function loadWhitelist() {
+  if (!fs.existsSync(WHITELIST_PATH)) return new Set();
+  try { return new Set(JSON.parse(fs.readFileSync(WHITELIST_PATH, "utf8"))); }
+  catch { return new Set(); }
+}
 
 function loadBlockList() {
   if (!fs.existsSync(BLOCK_LIST_PATH)) return new Set();
