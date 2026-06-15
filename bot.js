@@ -36,9 +36,6 @@ const WEEKLY_SUMMARY_DAY   = 1; // 0=Sun, 1=Mon
 const SPIKE_THRESHOLD      = 3;
 const BLOCK_LIST_PATH      = "blocklist.json";
 
-// Smart unfollow timing — only unfollow once per day at this UTC hour
-const UNFOLLOW_HOUR_UTC    = 12;
-
 // Engagement scoring — weight for prioritizing posts
 const SCORE_LIKE_WEIGHT    = 1;
 const SCORE_REPLY_WEIGHT   = 3;
@@ -1041,9 +1038,10 @@ async function getMutualNetwork(did, token) {
 }
 
 // ── Smart unfollow timing ─────────────────────────────────
-function shouldRunUnfollows() {
-  const hour = new Date().getUTCHours();
-  return hour === UNFOLLOW_HOUR_UTC;
+function shouldRunUnfollows(stats) {
+  const today = new Date().toISOString().slice(0, 10);
+  if (stats.lastUnfollowDate === today) return false;
+  return true;
 }
 
 // ── Reply persona ─────────────────────────────────────────
@@ -1255,12 +1253,13 @@ async function run() {
   // Update follow-back rate
   updateFollowBackRate(stats, followers);
 
-  // Unfollow inactive non-followers — only run at designated hour
+  // Unfollow inactive non-followers — runs once per day on first cycle
   let totalUnfollows = 0;
-  if (shouldRunUnfollows()) {
+  if (shouldRunUnfollows(stats)) {
     totalUnfollows = await runUnfollows(did, token, following, followers, stats);
+    stats.lastUnfollowDate = new Date().toISOString().slice(0, 10);
   } else {
-    console.log(`⏰ Unfollow check skipped — runs at ${UNFOLLOW_HOUR_UTC}:00 UTC`);
+    console.log(`⏰ Unfollow check skipped — already ran today (${stats.lastUnfollowDate})`);
   }
 
   // Like back new followers
