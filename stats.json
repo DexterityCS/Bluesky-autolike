@@ -1,10 +1,10 @@
 {
-  "totalLikes": 1762,
-  "totalFollows": 857,
+  "totalLikes": 1779,
+  "totalFollows": 865,
   "totalUnfollows": 312,
-  "totalReplies": 257,
-  "runs": 88,
-  "lastRun": "2026-06-18T11:59:12.899Z",
+  "totalReplies": 260,
+  "runs": 89,
+  "lastRun": "2026-06-18T15:52:38.960Z",
   "lastLikedAt": {
     "did:plc:rr4w6c7bgwsda3ty6uei7p3p": "2026-06-03T11:29:31.173Z",
     "did:plc:ois4cqnsylhfo4mwk6fcfxyi": "2026-06-02T11:46:47.376Z",
@@ -29,7 +29,7 @@
     "did:plc:vagbqbbdruce7pls5rdlafi7": "2026-06-02T00:17:53.877Z",
     "did:plc:6bb2v2sywv3asxgsuqrcukhq": "2026-05-22T19:46:48.775Z",
     "did:plc:n3svxe5zcy6wkmspukcwbvua": "2026-06-09T04:15:19.460Z",
-    "did:plc:jq5ij3fyqu5qsaifjalityqh": "2026-06-17T20:58:56.465Z",
+    "did:plc:jq5ij3fyqu5qsaifjalityqh": "2026-06-18T15:42:48.761Z",
     "did:plc:ohptat2xvmaalxpjoewvqhyq": "2026-05-31T10:15:58.172Z",
     "did:plc:2wzmkobveta7aglmn2kxshtc": "2026-06-02T19:53:52.078Z",
     "did:plc:jy6yfrbqycyqmkjsnxs2h6jz": "2026-06-02T23:22:25.881Z",
@@ -249,7 +249,7 @@
     "did:plc:36hbhlg73eqkifck34p5m3vw": "2026-06-10T13:43:38.960Z",
     "did:plc:sq4vwil5qzsk4wtus4m4qt47": "2026-06-06T17:45:39.764Z",
     "did:plc:hxc23woelig2vrrxhhlpqkvm": "2026-06-02T03:30:25.479Z",
-    "did:plc:g2xdguz7a5lhf7dowsyy2xex": "2026-06-17T06:08:21.063Z",
+    "did:plc:g2xdguz7a5lhf7dowsyy2xex": "2026-06-18T15:43:13.362Z",
     "did:plc:5o2fdmjaz3t6mflp3furfbr3": "2026-06-08T16:05:38.627Z",
     "did:plc:5dnxqkrgimpaveaozohmymfm": "2026-06-06T15:06:25.005Z",
     "did:plc:4gtbgra3bzdjai3lkngxpoy2": "2026-06-09T03:25:12.163Z",
@@ -342,7 +342,7 @@
     "did:plc:kbviutl3bomrcbuchrad3nqb": "2026-06-09T15:22:04.866Z",
     "did:plc:girrxynpcbxfgptnus7fomep": "2026-06-09T15:22:05.906Z",
     "did:plc:porwhxzwut6vszlqjcvnmmag": "2026-06-09T14:49:05.378Z",
-    "did:plc:zkauqufimanueomwsin45yho": "2026-06-15T12:21:23.567Z",
+    "did:plc:zkauqufimanueomwsin45yho": "2026-06-18T15:29:26.464Z",
     "did:plc:fftnhvruuyneagnerq73qmfr": "2026-06-09T05:07:52.666Z",
     "did:plc:33wdmcwpkvsckk4sqcnsav42": "2026-06-09T15:00:15.460Z",
     "did:plc:gl255hhmz2idzqg7726lusfm": "2026-06-14T01:51:14.465Z",
@@ -442,12 +442,12 @@
     "did:plc:uxvdusz3e6eqapsbaf7eue5u": "2026-06-12T19:31:07.282Z",
     "did:plc:42r4xhhyx6zlaiwkns6ewi6o": "2026-06-13T09:00:33.070Z",
     "did:plc:cgyiayqcgzfdanbwndbfy4de": "2026-06-13T18:44:39.467Z",
-    "did:plc:ofbdzsmc5l4mf4fkxk72a5ku": "2026-06-18T11:43:23.266Z",
+    "did:plc:ofbdzsmc5l4mf4fkxk72a5ku": "2026-06-18T12:37:08.463Z",
     "did:plc:hgqazfat3m4t6ipv7ryf3jz6": "2026-06-12T12:16:10.663Z",
     "did:plc:r6ve66b5fvwdzcpi33ch6ygc": "2026-06-13T06:31:17.164Z",
     "did:plc:x5aw3p3dhbxflzpmhrv4gdnn": "2026-06-18T00:29:31.063Z",
     "did:plc:wlrpip2pqc4bppd7iut54sfo": "2026-06-12T22:33:09.064Z",
-    "did:plc:xh3h2ps67tdpr5qq5732rvhz": "2026-06-18T11:02:19.863Z",
+    "did:plc:xh3h2ps67tdpr5qq5732rvhz": "2026-06-18T15:18:28.663Z",
     "did:plc:qcakgqz6mtiyrneh3yqpyb3d": "2026-06-13T10:38:28.564Z",
     "did:plc:otuhpnyb4qigxibtga6lq5zz": "2026-06-13T12:14:28.963Z",
     "did:plc:bzkph74auwnyrme3mxjiph6f": "2026-06-13T13:58:36.466Z",
@@ -531,7 +531,7 @@
     "did:plc:j62rx6jk5hu4mhzkh4dhrjxd": "2026-06-15T13:03:19.170Z",
     "did:plc:cyfsw3qziqzjqzrdsj7y52vr": "2026-06-18T11:02:28.161Z",
     "did:plc:2rfr37nglcgqnelm2j43c3j5": "2026-06-15T08:45:06.466Z",
-    "did:plc:gd3urln7zbi7itdlvgofr7je": "2026-06-18T09:51:01.361Z",
+    "did:plc:gd3urln7zbi7itdlvgofr7je": "2026-06-18T14:35:24.669Z",
     "did:plc:mfrkou6lg72a2ypp6ueehk64": "2026-06-17T09:37:05.762Z",
     "did:plc:bprzj4k5rybl7undmvdqir5z": "2026-06-14T19:37:18.964Z",
     "did:plc:6ttyq36rhiyed7wu3ws7dmqj": "2026-06-15T19:35:39.767Z",
@@ -548,9 +548,9 @@
     "did:plc:luic75acucgjlvvkge6t45d5": "2026-06-15T14:39:03.964Z",
     "did:plc:jtgq6j6lad6uswrr6e6ns4bj": "2026-06-18T02:57:24.965Z",
     "did:plc:jnc2oiqfnuaokshl6izyh2hg": "2026-06-16T00:32:20.960Z",
-    "did:plc:jowhjw42cv33fh2q4lotk6he": "2026-06-17T18:07:35.261Z",
+    "did:plc:jowhjw42cv33fh2q4lotk6he": "2026-06-18T15:36:59.960Z",
     "did:plc:s24sbf64bxmxnbux4jmmnmlx": "2026-06-16T03:20:13.564Z",
-    "did:plc:vib5ebeiejkc64dhlbkwawby": "2026-06-17T19:50:50.202Z",
+    "did:plc:vib5ebeiejkc64dhlbkwawby": "2026-06-18T14:55:04.970Z",
     "did:plc:claz55vvrifwrhnuc5jtas3l": "2026-06-15T23:11:05.369Z",
     "did:plc:2lyjqkz7thlgsry56dgumti6": "2026-06-16T16:28:49.262Z",
     "did:plc:folbovbkubsk4uhsnrdp4pyc": "2026-06-16T04:11:52.462Z",
@@ -577,7 +577,7 @@
     "did:plc:lafx3dewmogvhrpbguky4oc6": "2026-06-16T23:58:58.861Z",
     "did:plc:pzlvkrep5hcjsingaaj44skc": "2026-06-16T23:09:36.369Z",
     "did:plc:5xskwa7llioovanuf4tr3o5e": "2026-06-17T10:00:27.663Z",
-    "did:plc:ydes4m2jwf7vjoygesyaqxoy": "2026-06-18T01:37:33.666Z",
+    "did:plc:ydes4m2jwf7vjoygesyaqxoy": "2026-06-18T15:46:10.764Z",
     "did:plc:jrhtxfn6thyu7a3jqouz3j3m": "2026-06-18T10:47:44.864Z",
     "did:plc:wlchwjpo4ckkoa3h25uk77rh": "2026-06-17T18:27:08.376Z",
     "did:plc:cvz7fadldr3x5an34slkkqmc": "2026-06-17T18:27:09.371Z",
@@ -598,7 +598,15 @@
     "did:plc:lazhupr7zaiwlv6yujch447k": "2026-06-17T17:53:18.362Z",
     "did:plc:qtop43tavzwle7vsqhdbmyqc": "2026-06-17T19:29:04.461Z",
     "did:plc:of2fzkjydnco5is3qec5tieh": "2026-06-18T01:56:10.066Z",
-    "did:plc:ly4xif6gj6uoxwywv4lupimt": "2026-06-17T21:12:48.563Z"
+    "did:plc:ly4xif6gj6uoxwywv4lupimt": "2026-06-17T21:12:48.563Z",
+    "did:plc:xqbw53f2uncfqigaj6eam3tm": "2026-06-17T10:59:25.362Z",
+    "did:plc:nqjwv62jxxiac55r6wijx7u3": "2026-06-18T14:11:23.465Z",
+    "did:plc:vt76lr57fhmd7zv5ksgr2lt7": "2026-06-17T15:50:32.663Z",
+    "did:plc:bh46xtnzqealy37usnfmb7yh": "2026-06-17T13:33:11.068Z",
+    "did:plc:yhiattosg5zmblmvstmrlo4j": "2026-06-18T04:21:25.562Z",
+    "did:plc:lkdhyvsngr35udcqspz57yj6": "2026-06-18T03:42:39.961Z",
+    "did:plc:d7watnxo4apjerfac3jg2hky": "2026-06-17T18:59:01.360Z",
+    "did:plc:7brhywdra3larr7g3lpmj7k2": "2026-06-18T11:16:00.563Z"
   },
   "lastRepliedAt": {
     "did:plc:hxncusurpz3tz6vi4slikvjr": "2026-06-02T21:26:11.914Z",
@@ -847,7 +855,10 @@
     "did:plc:vahtz72vqgetnz3cf4xsa7iv": "2026-06-18T04:53:25.380Z",
     "did:plc:2zb3aq5jpbhnrgbaqeobrdis": "2026-06-18T11:58:31.329Z",
     "did:plc:lazhupr7zaiwlv6yujch447k": "2026-06-18T11:58:52.994Z",
-    "did:plc:ly4xif6gj6uoxwywv4lupimt": "2026-06-18T11:59:11.056Z"
+    "did:plc:ly4xif6gj6uoxwywv4lupimt": "2026-06-18T11:59:11.056Z",
+    "did:plc:xqbw53f2uncfqigaj6eam3tm": "2026-06-18T15:51:30.706Z",
+    "did:plc:vt76lr57fhmd7zv5ksgr2lt7": "2026-06-18T15:51:53.383Z",
+    "did:plc:lkdhyvsngr35udcqspz57yj6": "2026-06-18T15:52:19.807Z"
   },
   "dailyActions": {
     "2026-06-12": 174,
@@ -856,37 +867,37 @@
     "2026-06-15": 178,
     "2026-06-16": 120,
     "2026-06-17": 111,
-    "2026-06-18": 57
+    "2026-06-18": 85
   },
   "hourlyActions": [
-    1781783787880,
-    1781783787920,
-    1781783800253,
-    1781783819400,
-    1781783825626,
-    1781783838101,
-    1781783848277,
-    1781783851927,
-    1781783861226,
-    1781783864310,
-    1781783870848,
-    1781783880667,
-    1781783905721,
-    1781783908224,
-    1781783911329,
-    1781783921375,
-    1781783925072,
-    1781783925112,
-    1781783929438,
-    1781783932994,
-    1781783934035,
-    1781783939440,
-    1781783939491,
-    1781783944892,
-    1781783944930,
-    1781783947934,
-    1781783951056,
-    1781783952098
+    1781797777499,
+    1781797806745,
+    1781797818309,
+    1781797831986,
+    1781797846417,
+    1781797852697,
+    1781797870307,
+    1781797874508,
+    1781797887533,
+    1781797890707,
+    1781797891755,
+    1781797895219,
+    1781797906417,
+    1781797906468,
+    1781797910098,
+    1781797913383,
+    1781797914433,
+    1781797919472,
+    1781797919515,
+    1781797924873,
+    1781797924914,
+    1781797936379,
+    1781797939807,
+    1781797940858,
+    1781797948728,
+    1781797948776,
+    1781797958109,
+    1781797958158
   ],
   "followedAt": {
     "did:plc:a5fwvpvub5e7mxaebuxn3tuu": {
@@ -3279,10 +3290,58 @@
       "followedBack": false,
       "followedAt": "2026-06-18T11:59:12.098Z",
       "term": "#Minecraft"
+    },
+    "did:plc:xqbw53f2uncfqigaj6eam3tm": {
+      "handle": "gameheat.bsky.social",
+      "followedBack": false,
+      "followedAt": "2026-06-18T15:51:31.755Z",
+      "term": "terraria"
+    },
+    "did:plc:nqjwv62jxxiac55r6wijx7u3": {
+      "handle": "dammad71.bsky.social",
+      "followedBack": false,
+      "followedAt": "2026-06-18T15:51:46.468Z",
+      "term": "#Minecraft"
+    },
+    "did:plc:vt76lr57fhmd7zv5ksgr2lt7": {
+      "handle": "melloravt.bsky.social",
+      "followedBack": false,
+      "followedAt": "2026-06-18T15:51:54.433Z",
+      "term": "#Terraria"
+    },
+    "did:plc:bh46xtnzqealy37usnfmb7yh": {
+      "handle": "lordenigma.bsky.social",
+      "followedBack": false,
+      "followedAt": "2026-06-18T15:51:59.515Z",
+      "term": "terraria"
+    },
+    "did:plc:yhiattosg5zmblmvstmrlo4j": {
+      "handle": "isyew.bsky.social",
+      "followedBack": false,
+      "followedAt": "2026-06-18T15:52:04.914Z",
+      "term": "CS2"
+    },
+    "did:plc:lkdhyvsngr35udcqspz57yj6": {
+      "handle": "firelightshearth.bsky.social",
+      "followedBack": false,
+      "followedAt": "2026-06-18T15:52:20.858Z",
+      "term": "#Minecraft"
+    },
+    "did:plc:d7watnxo4apjerfac3jg2hky": {
+      "handle": "seannorthridge.bsky.social",
+      "followedBack": false,
+      "followedAt": "2026-06-18T15:52:28.776Z",
+      "term": "CS2"
+    },
+    "did:plc:7brhywdra3larr7g3lpmj7k2": {
+      "handle": "alekvender.bsky.social",
+      "followedBack": false,
+      "followedAt": "2026-06-18T15:52:38.158Z",
+      "term": "#Overwatch"
     }
   },
   "followBackRate": {
-    "followed": 686,
+    "followed": 694,
     "followedBack": 21
   },
   "followerHistory": [
@@ -3352,39 +3411,39 @@
     },
     {
       "date": "2026-06-18",
-      "count": 38
+      "count": 39
     }
   ],
   "termPerformance": {
     "#CS2": {
-      "likes": 32,
+      "likes": 33,
       "follows": 4,
-      "runs": 81
+      "runs": 82
     },
     "#CounterStrike": {
       "likes": 18,
       "follows": 0,
-      "runs": 81
+      "runs": 82
     },
     "#CounterStrike2": {
       "likes": 2,
       "follows": 0,
-      "runs": 81
+      "runs": 82
     },
     "#CS2clips": {
       "likes": 0,
       "follows": 0,
-      "runs": 81
+      "runs": 82
     },
     "CS2": {
-      "likes": 194,
-      "follows": 37,
-      "runs": 81
+      "likes": 196,
+      "follows": 39,
+      "runs": 82
     },
     "counter-strike": {
-      "likes": 212,
+      "likes": 216,
       "follows": 55,
-      "runs": 81
+      "runs": 82
     },
     "#CS2Pro": {
       "likes": 0,
@@ -3472,69 +3531,69 @@
       "runs": 8
     },
     "#ApexLegends": {
-      "likes": 29,
+      "likes": 30,
       "follows": 21,
-      "runs": 68
+      "runs": 69
     },
     "#Apex": {
       "likes": 12,
       "follows": 16,
-      "runs": 68
+      "runs": 69
     },
     "apex legends": {
       "likes": 94,
       "follows": 25,
-      "runs": 68
+      "runs": 69
     },
     "#RainbowSixSiege": {
-      "likes": 18,
+      "likes": 19,
       "follows": 1,
-      "runs": 68
+      "runs": 69
     },
     "#R6Siege": {
       "likes": 0,
       "follows": 0,
-      "runs": 68
+      "runs": 69
     },
     "#R6": {
       "likes": 0,
       "follows": 0,
-      "runs": 68
+      "runs": 69
     },
     "#Overwatch": {
-      "likes": 228,
-      "follows": 107,
-      "runs": 68
+      "likes": 230,
+      "follows": 108,
+      "runs": 69
     },
     "#Overwatch2": {
       "likes": 7,
       "follows": 3,
-      "runs": 68
+      "runs": 69
     },
     "#OW2": {
       "likes": 2,
       "follows": 0,
-      "runs": 68
+      "runs": 69
     },
     "#Minecraft": {
-      "likes": 115,
-      "follows": 81,
-      "runs": 68
+      "likes": 117,
+      "follows": 83,
+      "runs": 69
     },
     "minecraft": {
       "likes": 103,
       "follows": 89,
-      "runs": 68
+      "runs": 69
     },
     "#Terraria": {
-      "likes": 145,
-      "follows": 53,
-      "runs": 68
+      "likes": 146,
+      "follows": 54,
+      "runs": 69
     },
     "terraria": {
-      "likes": 98,
-      "follows": 49,
-      "runs": 68
+      "likes": 101,
+      "follows": 51,
+      "runs": 69
     },
     "#incremental": {
       "likes": 20,
@@ -3559,6 +3618,48 @@
   },
   "filteredCount": 0,
   "filterHitLog": [
+    {
+      "handle": "arnedw.bsky.social",
+      "reason": "non-English post text",
+      "keyword": null,
+      "at": "2026-06-18T15:52:32.431Z"
+    },
+    {
+      "handle": "hirtkageka.bsky.social",
+      "reason": "non-English post text",
+      "keyword": null,
+      "at": "2026-06-18T15:52:12.833Z"
+    },
+    {
+      "handle": "cayceisnull.bsky.social",
+      "reason": "NSFW/political post content: election",
+      "keyword": null,
+      "at": "2026-06-18T15:49:01.428Z"
+    },
+    {
+      "handle": "zambik.bsky.social",
+      "reason": "NSFW/political post content: rally",
+      "keyword": null,
+      "at": "2026-06-18T15:49:01.427Z"
+    },
+    {
+      "handle": "enkro.me",
+      "reason": "NSFW/political post content: mdni",
+      "keyword": null,
+      "at": "2026-06-18T15:49:01.426Z"
+    },
+    {
+      "handle": "kelticangel.bsky.social",
+      "reason": "NSFW/political post content: rally",
+      "keyword": null,
+      "at": "2026-06-18T15:49:01.425Z"
+    },
+    {
+      "handle": "pinespup.bsky.social",
+      "reason": "NSFW/political post content: furry",
+      "keyword": null,
+      "at": "2026-06-18T15:49:00.982Z"
+    },
     {
       "handle": "unclekeeith.bsky.social",
       "reason": "NSFW/political post content",
@@ -4116,60 +4217,18 @@
       "reason": "NSFW/political post content: msm",
       "keyword": null,
       "at": "2026-06-15T22:24:24.161Z"
-    },
-    {
-      "handle": "anubisqueen.bsky.social",
-      "reason": "NSFW/political post content: 18+",
-      "keyword": null,
-      "at": "2026-06-15T22:24:24.161Z"
-    },
-    {
-      "handle": "nimelya.bsky.social",
-      "reason": "non-English post text",
-      "keyword": null,
-      "at": "2026-06-15T19:55:29.544Z"
-    },
-    {
-      "handle": "danmateostudios.bsky.social",
-      "reason": "NSFW/political post content: furry",
-      "keyword": null,
-      "at": "2026-06-15T19:53:23.604Z"
-    },
-    {
-      "handle": "christophergrey.bsky.social",
-      "reason": "NSFW/political post content: politics",
-      "keyword": null,
-      "at": "2026-06-15T19:53:22.727Z"
-    },
-    {
-      "handle": "gall4had.abbyintheattic.online",
-      "reason": "NSFW/political post content: nsfw",
-      "keyword": null,
-      "at": "2026-06-15T19:53:22.726Z"
-    },
-    {
-      "handle": "secretlyacatt.bsky.social",
-      "reason": "NSFW/political post content: pride month",
-      "keyword": null,
-      "at": "2026-06-15T19:53:22.726Z"
-    },
-    {
-      "handle": "bushybot.bsky.social",
-      "reason": "NSFW/political post content: pride",
-      "keyword": null,
-      "at": "2026-06-15T19:53:22.324Z"
     }
   ],
   "replyEngagement": {
-    "sent": 257,
-    "gotLiked": 250,
-    "gotReplied": 236
+    "sent": 260,
+    "gotLiked": 253,
+    "gotReplied": 239
   },
   "replyPersonaStats": {
     "friendly": {
-      "sent": 33,
-      "gotLiked": 30,
-      "gotReplied": 30
+      "sent": 36,
+      "gotLiked": 33,
+      "gotReplied": 33
     },
     "analytical": {
       "sent": 30,
@@ -4185,6 +4244,15 @@
   "milestonesCelebrated": [],
   "lastWeeklySummary": "2026-06-15",
   "runHistory": [
+    {
+      "timestamp": "2026-06-18T15:52:38.960Z",
+      "likes": 17,
+      "follows": 8,
+      "unfollows": 0,
+      "replies": 3,
+      "netFollowers": 0,
+      "filtered": 0
+    },
     {
       "timestamp": "2026-06-18T11:59:12.899Z",
       "likes": 19,
@@ -4265,19 +4333,9 @@
       "replies": 4,
       "netFollowers": 2,
       "filtered": 0
-    },
-    {
-      "timestamp": "2026-06-16T05:24:50.237Z",
-      "likes": 21,
-      "follows": 5,
-      "unfollows": 0,
-      "replies": 4,
-      "netFollowers": 5,
-      "filtered": 0
     }
   ],
   "actionsHistory": [
-    29,
     31,
     29,
     29,
@@ -4296,6 +4354,7 @@
     28,
     29,
     29,
+    28,
     28
   ],
   "termFollowBackRate": {
@@ -4324,7 +4383,7 @@
       "followedBack": 1
     },
     "#Terraria": {
-      "followed": 4,
+      "followed": 5,
       "followedBack": 0
     },
     "minecraft": {
@@ -4332,15 +4391,15 @@
       "followedBack": 2
     },
     "#Overwatch": {
-      "followed": 34,
+      "followed": 35,
       "followedBack": 2
     },
     "#Minecraft": {
-      "followed": 39,
+      "followed": 41,
       "followedBack": 1
     },
     "CS2": {
-      "followed": 13,
+      "followed": 15,
       "followedBack": 1
     },
     "#ApexLegends": {
@@ -4352,7 +4411,7 @@
       "followedBack": 1
     },
     "terraria": {
-      "followed": 8,
+      "followed": 10,
       "followedBack": 1
     },
     "apex legends": {
@@ -4369,27 +4428,6 @@
     }
   },
   "sentReplies": [
-    {
-      "uri": "at://did:plc:cyfsw3qziqzjqzrdsj7y52vr/app.bsky.feed.post/3mocvrm5uic2y",
-      "authorDid": "did:plc:cyfsw3qziqzjqzrdsj7y52vr",
-      "sentAt": "2026-06-15T14:34:55.237Z",
-      "checkedEngagement": true,
-      "persona": "friendly"
-    },
-    {
-      "uri": "at://did:plc:mfrkou6lg72a2ypp6ueehk64/app.bsky.feed.post/3moc5wsur2s2n",
-      "authorDid": "did:plc:mfrkou6lg72a2ypp6ueehk64",
-      "sentAt": "2026-06-15T14:35:21.906Z",
-      "checkedEngagement": true,
-      "persona": "friendly"
-    },
-    {
-      "uri": "at://did:plc:ny477w7g7qnaridvjvz6forq/app.bsky.feed.post/3modyxshl5c2c",
-      "authorDid": "did:plc:ny477w7g7qnaridvjvz6forq",
-      "sentAt": "2026-06-15T19:54:21.101Z",
-      "checkedEngagement": true,
-      "persona": "friendly"
-    },
     {
       "uri": "at://did:plc:gd3urln7zbi7itdlvgofr7je/app.bsky.feed.post/3mod4cdolmc23",
       "authorDid": "did:plc:gd3urln7zbi7itdlvgofr7je",
@@ -4702,20 +4740,41 @@
       "uri": "at://did:plc:2zb3aq5jpbhnrgbaqeobrdis/app.bsky.feed.post/3mokogls7ys2n",
       "authorDid": "did:plc:2zb3aq5jpbhnrgbaqeobrdis",
       "sentAt": "2026-06-18T11:58:31.329Z",
-      "checkedEngagement": false,
+      "checkedEngagement": true,
       "persona": "friendly"
     },
     {
       "uri": "at://did:plc:lazhupr7zaiwlv6yujch447k/app.bsky.feed.post/3moiuxzu7u22x",
       "authorDid": "did:plc:lazhupr7zaiwlv6yujch447k",
       "sentAt": "2026-06-18T11:58:52.994Z",
-      "checkedEngagement": false,
+      "checkedEngagement": true,
       "persona": "friendly"
     },
     {
       "uri": "at://did:plc:ly4xif6gj6uoxwywv4lupimt/app.bsky.feed.post/3moja4pzjd22h",
       "authorDid": "did:plc:ly4xif6gj6uoxwywv4lupimt",
       "sentAt": "2026-06-18T11:59:11.056Z",
+      "checkedEngagement": true,
+      "persona": "friendly"
+    },
+    {
+      "uri": "at://did:plc:xqbw53f2uncfqigaj6eam3tm/app.bsky.feed.post/3moi5ty35ek2s",
+      "authorDid": "did:plc:xqbw53f2uncfqigaj6eam3tm",
+      "sentAt": "2026-06-18T15:51:30.706Z",
+      "checkedEngagement": false,
+      "persona": "friendly"
+    },
+    {
+      "uri": "at://did:plc:vt76lr57fhmd7zv5ksgr2lt7/app.bsky.feed.post/3moio4iojms26",
+      "authorDid": "did:plc:vt76lr57fhmd7zv5ksgr2lt7",
+      "sentAt": "2026-06-18T15:51:53.383Z",
+      "checkedEngagement": false,
+      "persona": "friendly"
+    },
+    {
+      "uri": "at://did:plc:lkdhyvsngr35udcqspz57yj6/app.bsky.feed.post/3mojvvrfrac2v",
+      "authorDid": "did:plc:lkdhyvsngr35udcqspz57yj6",
+      "sentAt": "2026-06-18T15:52:19.807Z",
       "checkedEngagement": false,
       "persona": "friendly"
     }
