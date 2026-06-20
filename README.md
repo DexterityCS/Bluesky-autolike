@@ -29,6 +29,7 @@ Search terms are fully customizable from the dashboard without touching secrets.
 - Mutual network boost — accounts in your extended network get +10 priority score
 - Likes back anyone who follows you with a recent post
 - AI-generated contextual replies via Claude — reads each post, detects the game, replies as Dexterity
+- **Thread-aware replies** — fetches the full post thread before replying so context is never lost
 - Reply persona rotation — cycles between `hype`, `analytical`, and `friendly` each run
 - English-only replies — AI language detection before replying (catches Latin-script languages like German, French, Spanish)
 - Skips reposts and quote posts — only engages with original content
@@ -49,7 +50,8 @@ Search terms are fully customizable from the dashboard without touching secrets.
 - Minimum engagement score filter (configurable)
 
 ### Unfollow Management
-- Smart unfollow timing — unfollows run within an **11:00–13:00 UTC window** (tolerates GitHub Actions cron delays)
+- **Once-per-day unfollow** — runs on the first cycle of each day, skips all subsequent runs
+- Skip message shows the time it last ran and how many were unfollowed
 - 14-day follow-back window — unfollows accounts that haven't followed back within 14 days
 - Always keeps accounts that follow you back
 - Whitelist support — add accounts to `whitelist.json` to protect them from unfollowing
@@ -69,7 +71,7 @@ Search terms are fully customizable from the dashboard without touching secrets.
 - Both use Claude to write genuine posts if `ANTHROPIC_API_KEY` is set
 
 ### Analytics & Reporting
-- Cumulative stats in `stats.json`: likes, follows, unfollows, replies
+- Cumulative stats synced to a **GitHub Gist after every run** — no commit required
 - Growth velocity — 30-day follower history, daily average gain
 - Best performing search terms — tracks which terms drive the most engagement
 - **Term follow-back rate** — tracks which search terms produce accounts that actually follow back
@@ -83,6 +85,8 @@ Search terms are fully customizable from the dashboard without touching secrets.
 - `lastLikedAt` auto-pruned every 30 days to keep `stats.json` lean
 
 ### Dashboard (GitHub Pages)
+- **Live stats** — reads directly from Gist, updates every bot run without waiting for a commit
+- Falls back to repo `stats.json` automatically if Gist is unreachable
 - Manual trigger with 60-second cooldown
 - **Pause / Resume** toggle
 - **⬇ Export** — downloads full stats as CSV
@@ -107,9 +111,10 @@ Search terms are fully customizable from the dashboard without touching secrets.
 
 ```
 Bluesky-autolike/
-├── bot.js                          — core bot logic
+├── bot.js                          — core auto-engagement bot
+├── content_bot.js                  — CS2 content poster (hot takes, tips, polls, promos)
 ├── index.html                      — GitHub Pages dashboard
-├── stats.json                      — auto-generated cumulative stats
+├── stats.json                      — daily snapshot (live data in Gist)
 ├── blocklist.json                  — auto-generated block list
 ├── whitelist.json                  — accounts protected from unfollowing
 ├── pause.json                      — auto-generated pause flag
@@ -117,6 +122,7 @@ Bluesky-autolike/
 └── .github/
     └── workflows/
         ├── schedule.yml            — main bot (every 4 hours)
+        ├── content-bot.yml         — content poster (3-4x daily)
         ├── keepalive.yml           — monthly commit to prevent deactivation
         └── post-release.yml        — auto-posts release notes to Bluesky via Claude
 ```
@@ -137,6 +143,10 @@ Bluesky-autolike/
 | `DISCORD_WEBHOOK_URL` | Optional | Discord channel webhook for run summaries |
 | `SEARCH_TERMS` | Optional | Comma-separated override for scheduled runs |
 | `ACTIONS_PER_RUN` | Optional | Default actions for scheduled runs (default: 25) |
+| `GIST_TOKEN` | Optional | PAT with `gist` scope — enables live dashboard stats without commits |
+| `GIST_ID` | Optional | ID of the Gist to write stats to (get from gist.github.com URL) |
+| `TWITCH_CLIENT_ID` | Optional | Enables live stream detection for auto promo posts |
+| `TWITCH_CLIENT_SECRET` | Optional | Required alongside `TWITCH_CLIENT_ID` |
 
 ### 3. Enable GitHub Actions
 Actions tab → enable workflows if prompted.
@@ -149,6 +159,13 @@ Dashboard: `dexteritycs.github.io/Bluesky-autolike`
 ### 5. Add your GitHub PAT to the dashboard
 - `github.com/settings/tokens` → Generate new token (classic) → check `repo` scope
 - Open the dashboard, paste your token, check "Remember on this device"
+
+### 6. Set up live stats Gist (optional but recommended)
+- Go to [gist.github.com](https://gist.github.com) → New secret gist
+- Filename: `stats.json`, content: `{}`
+- Copy the Gist ID from the URL and add as `GIST_ID` secret
+- Generate a PAT with only `gist` scope and add as `GIST_TOKEN` secret
+- Dashboard will now show live stats after every run, no commit needed
 
 ---
 
@@ -187,7 +204,8 @@ Add handles to `whitelist.json` to protect accounts from being unfollowed regard
 
 ## Schedule
 
-Runs automatically at `0 */4 * * *` UTC — every 4 hours, 6× per day:
+### Auto-liker (`schedule.yml`)
+Runs at `0 */4 * * *` UTC — every 4 hours, 6× per day:
 
 | UTC | CDT |
 |-----|-----|
@@ -198,9 +216,17 @@ Runs automatically at `0 */4 * * *` UTC — every 4 hours, 6× per day:
 | 4:00 PM | 11:00 AM |
 | 8:00 PM | 3:00 PM |
 
-Unfollows run once per day within the **11:00–13:00 UTC window (6:00–8:00 AM CDT)** to account for GitHub Actions scheduling delays.
+Unfollows run **once per day** on the first cycle of each day. The skip message in logs shows the time it last ran and how many accounts were unfollowed.
 
-A monthly keep-alive commit fires on the 1st of every month to prevent GitHub disabling the workflow after 60 days.
+### Content bot (`content-bot.yml`)
+Posts CS2 hot takes, tips, polls, challenges, and stream promos:
+- **Weekdays** — 3× per day
+- **Weekends** — 4× per day
+
+### Commits
+- `stats.json` — committed once per day (live data always available via Gist)
+- `blocklist.json` — committed immediately whenever it changes
+- Monthly keep-alive commit fires on the 1st to prevent GitHub disabling workflows after 60 days
 
 ---
 
@@ -219,10 +245,13 @@ Open `stats.json`, find `dailyActions`, delete today's date entry and commit. Or
 Edit `NSFW_TAGS` or `POLITICAL_TAGS` at the top of `bot.js`. Check the Filter Hit Log panel in the dashboard to see which keywords are triggering the most blocks and tune accordingly.
 
 **Bot engaging with non-English accounts**
-The AI bio language check requires `ANTHROPIC_API_KEY` to be set. Without it, only non-Latin-script languages (Cyrillic, Arabic, Chinese, etc.) are caught by the fallback script-based check.
+The AI bio and post language checks require `ANTHROPIC_API_KEY` to be set. Without it, only non-Latin-script languages (Cyrillic, Arabic, Chinese, etc.) are caught by the fallback check.
 
 **Unfollow check not running**
-The unfollow window is 11:00–13:00 UTC. GitHub Actions crons can fire up to 30–60 minutes late — the 3-hour window accounts for this.
+The bot runs unfollows once per day on the first cycle. Check the logs for `⏰ Unfollow check skipped — already ran today at HH:MM UTC (N unfollowed)` to confirm it ran earlier in the day.
+
+**Dashboard not showing latest stats**
+If `GIST_TOKEN` and `GIST_ID` are set, stats update after every run. If not set, the dashboard falls back to `stats.json` in the repo which only commits once per day.
 
 **Workflow not running automatically**
 Go to Actions tab and manually enable the workflow. The monthly keepalive prevents the 60-day deactivation.
@@ -235,6 +264,9 @@ Check `GITHUB_USER` and `GITHUB_REPO` constants at the top of `index.html` match
 
 **Rate limit errors**
 The bot automatically retries up to 3× on 429 responses with escalating backoff. If rate limits persist, reduce `ACTIONS_PER_RUN` or `DAILY_ACTION_CAP`.
+
+**Content bot not posting**
+Check `ANTHROPIC_API_KEY` is set. `TWITCH_CLIENT_ID` and `TWITCH_CLIENT_SECRET` are optional — without them the live stream promo check is skipped but all other post types still work.
 
 ---
 
