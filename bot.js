@@ -1321,12 +1321,17 @@ async function run() {
   updateFollowBackRate(stats, followers);
 
   // Unfollow inactive non-followers — runs once per day on first cycle
-  let totalUnfollows = 0;
   if (shouldRunUnfollows(stats)) {
     totalUnfollows = await runUnfollows(did, token, following, followers, stats);
     stats.lastUnfollowDate = new Date().toISOString().slice(0, 10);
+    stats.lastUnfollowTime = new Date().toISOString();
+    stats.lastUnfollowCount = totalUnfollows;
   } else {
-    console.log(`⏰ Unfollow check skipped — already ran today (${stats.lastUnfollowDate})`);
+    const lastTime = stats.lastUnfollowTime
+      ? new Date(stats.lastUnfollowTime).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" }) + " UTC"
+      : "unknown";
+    const lastCount = stats.lastUnfollowCount ?? "?";
+    console.log(`⏰ Unfollow check skipped — already ran today at ${lastTime} (${lastCount} unfollowed)`);
   }
 
   // Like back new followers
