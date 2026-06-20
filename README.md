@@ -112,7 +112,6 @@ Search terms are fully customizable from the dashboard without touching secrets.
 ```
 Bluesky-autolike/
 ├── bot.js                          — core auto-engagement bot
-├── content_bot.js                  — CS2 content poster (hot takes, tips, polls, promos)
 ├── index.html                      — GitHub Pages dashboard
 ├── stats.json                      — daily snapshot (live data in Gist)
 ├── blocklist.json                  — auto-generated block list
@@ -122,7 +121,6 @@ Bluesky-autolike/
 └── .github/
     └── workflows/
         ├── schedule.yml            — main bot (every 4 hours)
-        ├── content-bot.yml         — content poster (3-4x daily)
         ├── keepalive.yml           — monthly commit to prevent deactivation
         └── post-release.yml        — auto-posts release notes to Bluesky via Claude
 ```
