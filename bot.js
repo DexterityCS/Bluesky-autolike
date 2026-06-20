@@ -516,7 +516,45 @@ async function passesQualityFilters(authorDid, post, token, stats) {
 }
 
 // ── AI Reply generation ───────────────────────────────────
-async function generateReply(postText, authorHandle, persona = "friendly") {
+// ── Thread context fetcher ────────────────────────────────────
+async function getThreadContext(postUri, token) {
+  try {
+    const res = await apiRequest(
+      `app.bsky.feed.getPostThread?uri=${encodeURIComponent(postUri)}&depth=10&parentHeight=10`,
+      "GET", null, token
+    );
+    if (res.status !== 200 || !res.body.thread) return null;
+
+    const thread = res.body.thread;
+    const posts  = [];
+
+    // Walk up to root via parent chain
+    let current = thread;
+    while (current?.parent) {
+      current = current.parent;
+    }
+
+    // Now walk back down collecting post texts
+    function collectPosts(node) {
+      if (!node?.post?.record?.text) return;
+      posts.push({
+        handle: node.post.author?.handle || "unknown",
+        text:   node.post.record.text,
+      });
+      // Follow the first reply in the chain down to our target
+      if (node.replies?.length) {
+        collectPosts(node.replies[0]);
+      }
+    }
+
+    collectPosts(current);
+    return posts.length > 1 ? posts : null; // only useful if there's actual thread context
+  } catch {
+    return null;
+  }
+}
+
+async function generateReply(postText, authorHandle, persona = "friendly", token = null, postUri = null) {
   if (!ANTHROPIC_API_KEY) return null;
 
   // Only reply to English posts — AI language check
@@ -577,13 +615,25 @@ async function generateReply(postText, authorHandle, persona = "friendly") {
   else if (text.includes("minecraft")) gameContext = "Minecraft";
   else if (text.includes("terraria")) gameContext = "Terraria";
 
+  // Fetch thread context if this post is part of a thread
+  let threadContext = "";
+  if (token && postUri) {
+    const threadPosts = await getThreadContext(postUri, token);
+    if (threadPosts && threadPosts.length > 1) {
+      console.log(`   🧵 Thread context: ${threadPosts.length} posts`);
+      threadContext = "\n\nThread context (read from top):\n" +
+        threadPosts.map(p => `@${p.handle}: "${p.text}"`).join("\n") +
+        `\n\nThe post you are replying to is the last one by @${authorHandle}.`;
+    }
+  }
+
   const body = JSON.stringify({
     model: "claude-sonnet-4-6",
     max_tokens: 150,
     system: `You are Dexterity (@dexteritycs.bsky.social), a gamer and content creator who plays CS2, Apex Legends, Rainbow Six Siege, Overwatch, Minecraft, and Terraria. Write short, genuine, conversational replies to gaming posts. ${instruction} Sound like a real gamer — not a bot. Never use emojis excessively. Always reply in English only. Max 200 characters. Output only the reply text, nothing else.`,
     messages: [{
       role: "user",
-      content: `Reply to this ${gameContext} post by @${authorHandle}:\n\n"${postText}"\n\nWrite a short genuine reply as Dexterity. Keep it relevant to ${gameContext} and under 200 characters.`
+      content: `Reply to this ${gameContext} post by @${authorHandle}:\n\n"${postText}"${threadContext}\n\nWrite a short genuine reply as Dexterity. Keep it relevant to ${gameContext} and under 200 characters.`
     }]
   });
 
@@ -1474,7 +1524,7 @@ async function run() {
       if (ANTHROPIC_API_KEY && likesSinceLastReply >= REPLY_FREQUENCY) {
         const postText = targetPost.record?.text || "";
         if (postText.length >= MIN_REPLY_TEXT_LEN && canReply(authorDid, stats)) {
-          const replyText = await generateReply(postText, post.author?.handle, currentPersona);
+          const replyText = await generateReply(postText, post.author?.handle, currentPersona, token, targetPost.uri);
           if (replyText) {
             const replied = await replyToPost(targetPost, replyText, did, token);
             if (replied) {
