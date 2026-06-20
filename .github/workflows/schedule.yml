@@ -1,5 +1,4 @@
 name: Bluesky CS2 Auto-Liker/Follower
-
 on:
   schedule:
     - cron: "0 */4 * * *"
@@ -13,7 +12,6 @@ on:
         description: "Comma-separated search terms (overrides SEARCH_TERMS secret)"
         required: false
         default: ""
-
 jobs:
   run-bot:
     runs-on: ubuntu-latest
@@ -23,7 +21,6 @@ jobs:
     permissions:
       contents: write
       id-token: write
-
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -52,12 +49,27 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           SEARCH_TERMS: ${{ github.event.inputs.search_terms || secrets.SEARCH_TERMS }}
           ACTIONS_PER_RUN: ${{ github.event.inputs.actions_per_run || secrets.ACTIONS_PER_RUN || '25' }}
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GIST_ID: ${{ secrets.GIST_ID }}
         run: node bot.js
 
-      - name: Commit updated stats
+      - name: Commit stats (once per day) and blocklist (always if changed)
         run: |
           git config user.name "dexterityCS Bot"
           git config user.email "bot@dexteritycs"
-          git add stats.json blocklist.json
-          git diff --staged --quiet || git commit -m "📊 stats update — $(date +'%Y-%m-%d %H:%M') UTC"
+
+          # Always commit blocklist.json if it changed
+          git add blocklist.json
+          git diff --staged --quiet blocklist.json || git commit -m "🚫 blocklist update — $(date +'%Y-%m-%d %H:%M') UTC"
+
+          # Only commit stats.json if it hasn't been committed today
+          LAST_STATS_COMMIT=$(git log --oneline --format="%ci" -- stats.json | head -1 | cut -d' ' -f1)
+          TODAY=$(date +'%Y-%m-%d')
+          if [ "$LAST_STATS_COMMIT" != "$TODAY" ]; then
+            git add stats.json
+            git diff --staged --quiet stats.json || git commit -m "📊 daily stats update — $(date +'%Y-%m-%d') UTC"
+          else
+            echo "📊 stats.json already committed today — skipping (live data in Gist)"
+          fi
+
           git push
