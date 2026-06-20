@@ -373,7 +373,7 @@ async function isGamingRelevantAI(postText) {
 
   try {
     const body = JSON.stringify({
-      model: "claude-sonnet-4-6",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 10,
       system: "You are a content classifier. Answer only YES or NO.",
       messages: [{
@@ -478,7 +478,7 @@ async function passesQualityFilters(authorDid, post, token, stats) {
   if (bio.length > 10 && ANTHROPIC_API_KEY) {
     try {
       const langCheck = JSON.stringify({
-        model: "claude-sonnet-4-6",
+        model: "claude-haiku-4-5-20251001",
         max_tokens: 10,
         system: "You are a language detector. Answer only YES or NO.",
         messages: [{
@@ -522,7 +522,7 @@ async function generateReply(postText, authorHandle, persona = "friendly") {
   // Only reply to English posts — AI language check
   try {
     const langCheck = JSON.stringify({
-      model: "claude-sonnet-4-6",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 10,
       system: "You are a language detector. Answer only YES or NO.",
       messages: [{
@@ -1388,7 +1388,7 @@ async function run() {
     if (ANTHROPIC_API_KEY && postText.length > 10) {
       try {
         const langCheck = JSON.stringify({
-          model: "claude-sonnet-4-6",
+          model: "claude-haiku-4-5-20251001",
           max_tokens: 10,
           system: "You are a language detector. Answer only YES or NO.",
           messages: [{ role: "user", content: `Is this text written in English? Answer only YES or NO.\n\n"${postText.slice(0, 300)}"` }]
