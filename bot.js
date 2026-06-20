@@ -25,6 +25,8 @@ const REPLY_FREQUENCY      = 3;
 const REPLY_COOLDOWN_DAYS  = 7;    // don't reply to same account more than once per X days
 const MIN_REPLY_TEXT_LEN   = 30;   // minimum post text length to attempt a reply
 const DISCORD_WEBHOOK_URL  = process.env.DISCORD_WEBHOOK_URL || null; // optional run summary
+const GIST_TOKEN           = process.env.GIST_TOKEN || null;
+const GIST_ID              = process.env.GIST_ID || "9e21611814d0c5b84c94a9bc15ed21fa";
 
 // Follower milestones to celebrate
 const FOLLOWER_MILESTONES  = [100, 250, 500, 1000, 2500, 5000, 10000];
@@ -155,6 +157,37 @@ function loadStats() {
 
 function saveStats(stats) {
   fs.writeFileSync(STATS_PATH, JSON.stringify(stats, null, 2));
+}
+
+async function saveStatsToGist(stats) {
+  if (!GIST_TOKEN || !GIST_ID) return;
+  try {
+    const body = JSON.stringify({
+      files: {
+        "stats.json": {
+          content: JSON.stringify(stats, null, 2),
+        },
+      },
+    });
+    const res = await request({
+      hostname: "api.github.com",
+      path: `/gists/${GIST_ID}`,
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${GIST_TOKEN}`,
+        "User-Agent": "dexteritycs-bot",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    }, body);
+    if (res.status === 200) {
+      console.log("📡 Stats synced to Gist");
+    } else {
+      console.warn(`⚠️  Gist sync failed: ${res.status}`);
+    }
+  } catch (e) {
+    console.warn(`⚠️  Gist sync error: ${e.message}`);
+  }
 }
 
 function getDailyActionsUsed(stats) {
@@ -1321,17 +1354,12 @@ async function run() {
   updateFollowBackRate(stats, followers);
 
   // Unfollow inactive non-followers — runs once per day on first cycle
+  let totalUnfollows = 0;
   if (shouldRunUnfollows(stats)) {
     totalUnfollows = await runUnfollows(did, token, following, followers, stats);
     stats.lastUnfollowDate = new Date().toISOString().slice(0, 10);
-    stats.lastUnfollowTime = new Date().toISOString();
-    stats.lastUnfollowCount = totalUnfollows;
   } else {
-    const lastTime = stats.lastUnfollowTime
-      ? new Date(stats.lastUnfollowTime).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" }) + " UTC"
-      : "unknown";
-    const lastCount = stats.lastUnfollowCount ?? "?";
-    console.log(`⏰ Unfollow check skipped — already ran today at ${lastTime} (${lastCount} unfollowed)`);
+    console.log(`⏰ Unfollow check skipped — already ran today (${stats.lastUnfollowDate})`);
   }
 
   // Like back new followers
@@ -1595,6 +1623,7 @@ async function run() {
   // Spike detection — halt if actions are abnormally high
   if (checkForSpike(stats, totalActions)) {
     saveStats(stats);
+    await saveStatsToGist(stats);
     process.exit(1);
   }
 
@@ -1634,6 +1663,7 @@ async function run() {
   });
 
   saveStats(stats);
+  await saveStatsToGist(stats);
 
   console.log(`📊 Cumulative — ${stats.totalLikes} likes, ${stats.totalFollows} follows, ${stats.totalUnfollows} unfollows, ${stats.totalReplies} replies across ${stats.runs} runs`);
 
