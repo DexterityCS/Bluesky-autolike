@@ -52,7 +52,7 @@ Search terms are fully customizable from the dashboard without touching secrets.
 ### Unfollow Management
 - **Once-per-day unfollow** — runs on the first cycle of each day, skips all subsequent runs
 - Skip message shows the time it last ran and how many were unfollowed
-- 14-day follow-back window — unfollows accounts that haven't followed back within 14 days
+- 7-day follow-back window — unfollows accounts that haven't followed back within 14 days
 - Always keeps accounts that follow you back
 - Whitelist support — add accounts to `whitelist.json` to protect them from unfollowing
 
