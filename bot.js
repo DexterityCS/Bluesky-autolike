@@ -8,7 +8,7 @@ const BLUESKY_PASSWORD   = process.env.BLUESKY_PASSWORD;
 const ANTHROPIC_API_KEY  = process.env.ANTHROPIC_API_KEY;
 const ACTIONS_PER_RUN    = parseInt(process.env.ACTIONS_PER_RUN || "25");
 const INACTIVE_DAYS      = 60;   // unfollow if inactive this long (still used as secondary check)
-const FOLLOW_BACK_DAYS   = 14;   // unfollow if not followed back within this many days
+const FOLLOW_BACK_DAYS   = 7;   // unfollow if not followed back within this many days
 
 // Engagement quality filters
 const MIN_FOLLOWERS      = 25;
