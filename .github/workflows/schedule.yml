@@ -53,7 +53,7 @@ jobs:
           GIST_ID: ${{ secrets.GIST_ID }}
         run: node bot.js
 
-      - name: Commit stats (once per day) and blocklist (always if changed)
+      - name: Commit stats (once per day) and other files (always if changed)
         run: |
           git config user.name "dexterityCS Bot"
           git config user.email "bot@dexteritycs"
@@ -61,6 +61,14 @@ jobs:
           # Always commit blocklist.json if it changed
           git add blocklist.json
           git diff --staged --quiet blocklist.json || git commit -m "🚫 blocklist update — $(date +'%Y-%m-%d %H:%M') UTC"
+
+          # Always commit trimmed_terms.json if it changed
+          git add trimmed_terms.json 2>/dev/null || true
+          git diff --staged --quiet trimmed_terms.json 2>/dev/null || git commit -m "✂️ trimmed terms update — $(date +'%Y-%m-%d %H:%M') UTC" 2>/dev/null || true
+
+          # Always commit candidate_terms.json if it changed
+          git add candidate_terms.json 2>/dev/null || true
+          git diff --staged --quiet candidate_terms.json 2>/dev/null || git commit -m "💡 candidate terms update — $(date +'%Y-%m-%d %H:%M') UTC" 2>/dev/null || true
 
           # Only commit stats.json if it hasn't been committed today
           LAST_STATS_COMMIT=$(git log --oneline --format="%ci" -- stats.json | head -1 | cut -d' ' -f1)
