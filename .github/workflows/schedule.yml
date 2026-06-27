@@ -59,8 +59,7 @@ jobs:
         run: |
           git config user.name "dexterityCS Bot"
           git config user.email "bot@dexteritycs"
-
-          # Only commit manually managed files if they changed
           git add data/whitelist.json data/pause.json
           git diff --staged --quiet || git commit -m "🔧 config update — $(date +'%Y-%m-%d %H:%M') UTC"
+          git pull --rebase origin main
           git push
