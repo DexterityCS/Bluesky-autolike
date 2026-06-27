@@ -67,9 +67,7 @@ const DEFAULT_TERMS = [
 ];
 
 // NSFW tags and keywords to filter out — posts containing these will be skipped
-// NSFW tags — kept tight to avoid false positives on gaming content
 const NSFW_TAGS = [
-  // Explicit terms
   "nsfw", "18+", "onlyfans", "lewd", "hentai", "nude", "naked", "porn",
   "xxx", "erotic", "fetish", "adult content", "explicit content", "kink",
   "bdsm", "nudes", "slutty", "sexy pics", "hot pics", "fansly", "manyvids",
@@ -77,20 +75,16 @@ const NSFW_TAGS = [
   "cam girl", "camgirl", "camboy", "sex work", "sexwork", "sw friendly",
   "horny", "slutty", "booty", "ass pics", "topless", "lingerie model",
   "only fans", "of link", "of account", "subscribe to my", "mdni", "dni",
-  // Kink/BDSM lifestyle
   "bratty", "submissive", "dominant", "domme", "femdom", "findom",
   "daddy dom", "mommy dom", "owned by", "collared", "pet play",
   "little space", "age play", "ddlg", "mdlg",
-  // Furry
   "furry", "fursona", "fursuit", "yiff",
-  // Egirl/aesthetic NSFW adjacent
   "egirl", "e-girl", "bunny girl",
   "brat ",
 ];
 
 // Political keywords — posts containing these will be skipped entirely
 const POLITICAL_TAGS = [
-  // US Politics
   "democrat", "republican", "maga", "biden", "trump", "harris", "obama",
   "desantis", "aoc", "bernie", "pelosi", "mcconnell", "election", "ballot",
   "vote", "voted", "voting", "voter", "congress", "senate", "senate", "gop",
@@ -100,14 +94,11 @@ const POLITICAL_TAGS = [
   "gun control", "gun rights", "2nd amendment", "nra", "ar-15",
   "immigration", "deportation", "border wall", "illegal alien",
   "white supremac", "white nationalist", "kkk", "neo nazi",
-  // Social/identity politics
   "lgbtq", "transgender", "trans rights", "pride parade", "pride month", "pride",
   "gay rights", "homophob", "transphob",
-  // Gender identity
   "nonbinary", "non-binary", "enby", "they/them", "she/her", "he/him",
   "genderfluid", "gender fluid", "agender", "two spirit",
   "queer", "sapphic", "achillean", "aroace", "asexual", "bisexual",
-  // General political
   "political", "politics", "propaganda", "protest", "activist", "activism",
   "rally", "inauguration", "presidency", "whitehouse", "white house", "capitol",
   "supreme court", "constitution", "amendment", "bill of rights",
@@ -115,7 +106,6 @@ const POLITICAL_TAGS = [
   "woke", "anti-woke", "crt", "critical race theory",
 ];
 
-// NSFW emoji — checked separately since regex word boundary doesn't catch emoji
 const NSFW_EMOJI_LIST = [
   "🔞", "💦", "🍆", "🍑", "👅", "💋", "🥵", "😈", "🤤",
   "🍒", "🌶️", "🔥🔥🔥", "💯🔥",
@@ -125,8 +115,8 @@ const TRIMMED_TERMS_PATH    = "data/trimmed_terms.json";
 const CANDIDATE_TERMS_PATH  = "data/candidate_terms.json";
 
 // Term discovery config
-const MAX_CANDIDATE_DISCOVERY = 5;   // max new candidates to discover per run
-const MAX_ACTIVE_SEARCH_TERMS = 15;  // max total active search terms at once
+const MAX_CANDIDATE_DISCOVERY = 5;
+const MAX_ACTIVE_SEARCH_TERMS = 15;
 
 // Protected terms — never auto-trimmed regardless of performance
 const PROTECTED_TERMS = new Set([
@@ -183,7 +173,7 @@ const TRIMMED_TERMS = loadTrimmedTerms();
 const CANDIDATE_TERMS = loadCandidateTerms();
 const ACTIVE_CANDIDATES = CANDIDATE_TERMS.filter(c => c.status === "active").map(c => c.term);
 
-const NSFW_ACCOUNTS = new Set(); // populated from blocklist
+const NSFW_ACCOUNTS = new Set();
 const SEARCH_TERMS  = [
   ...(process.env.SEARCH_TERMS
     ? process.env.SEARCH_TERMS.split(",").map(s => s.trim()).filter(Boolean)
@@ -214,21 +204,19 @@ function loadStats(gist = null) {
     followerHistory: [],
     termPerformance: {},
     filteredCount: 0,
-    filterHitLog: [],            // last 100 filter hits with reason + keyword
+    filterHitLog: [],
     replyEngagement: { sent: 0, gotLiked: 0, gotReplied: 0 },
-    replyPersonaStats: {},       // per-persona engagement tracking
+    replyPersonaStats: {},
     milestonesCelebrated: [],
     lastWeeklySummary: null,
-    runHistory: [],              // last 10 runs for dashboard table
-    actionsHistory: [],          // recent run action counts for spike detection
-    termFollowBackRate: {},      // follow-back rate per search term
+    runHistory: [],
+    actionsHistory: [],
+    termFollowBackRate: {},
   };
-  // Try Gist first
   if (gist) {
     const gistStats = getGistFile(gist, "stats.json");
     if (gistStats) return { ...defaults, ...gistStats };
   }
-  // Fallback to local file
   if (!fs.existsSync(STATS_PATH)) return defaults;
   try { return { ...defaults, ...JSON.parse(fs.readFileSync(STATS_PATH, "utf8")) }; }
   catch { return defaults; }
@@ -240,7 +228,6 @@ function saveStats(stats) {
 
 async function saveStatsToGist(stats) {
   if (!GIST_TOKEN || !GIST_ID) return;
-  // Full Gist sync handled by syncAllToGist — this is kept for spike detection early exit
   await syncAllToGist(stats);
 }
 
@@ -447,20 +434,16 @@ async function getLatestPost(actorDid, token) {
 }
 
 // ── Content filter helpers ────────────────────────────────
-
-// Simple includes-based check (works correctly for multi-word phrases)
 function containsFilteredTag(text, tagList) {
   const lower = text.toLowerCase();
   return tagList.some(tag => lower.includes(tag));
 }
 
-// Returns the matched keyword or null
 function findFilteredTag(text, tagList) {
   const lower = text.toLowerCase();
   return tagList.find(tag => lower.includes(tag)) || null;
 }
 
-// Log a filter hit to stats (keeps last 100)
 function recordFilterHit(stats, handle, reason, keyword = null) {
   if (!stats.filterHitLog) stats.filterHitLog = [];
   stats.filterHitLog.unshift({
@@ -472,26 +455,17 @@ function recordFilterHit(stats, handle, reason, keyword = null) {
   if (stats.filterHitLog.length > 100) stats.filterHitLog.pop();
 }
 
-// ── Quality filters ───────────────────────────────────────
-
 // ── Gaming relevance check ────────────────────────────────
 const GAMING_TERMS = [
-  // CS2
   "cs2", "counter-strike", "counterstrike", "csgo", "premier", "faceit",
   "awp", "ak47", "m4a1", "valorant", "pistol round", "eco", "clutch",
   "smoke", "flash", "molotov", "defuse", "plant", "ct side", "t side",
-  // Apex
   "apex legends", "apex", "wraith", "pathfinder", "bloodhound", "respawn",
   "battle royale", "ring", "legends",
-  // R6
   "rainbow six", "r6", "siege", "operator", "roam",
-  // Overwatch
   "overwatch", "ow2", "blizzard", "tank", "support", "dps", "healer",
-  // Minecraft
   "minecraft", "creeper", "steve", "enderman", "nether", "redstone",
-  // Terraria
   "terraria", "boss", "hardmode",
-  // General gaming
   "gaming", "gamer", "fps", "streamer", "twitch", "stream", "esports",
   "ranked", "matchmaking", "kill", "headshot", "frag", "loadout",
   "crosshair", "sensitivity", "ping", "lag", "win rate", "kd ratio",
@@ -500,24 +474,15 @@ const GAMING_TERMS = [
 
 function isGamingRelevant(post) {
   const text = (post.record?.text || "").toLowerCase();
-
-  // Quick check — if any gaming term appears it's relevant
   if (GAMING_TERMS.some(term => text.includes(term))) return true;
-
-  // Check hashtags
   const tags = post.record?.tags || [];
   if (tags.some(t => GAMING_TERMS.some(term => t.toLowerCase().includes(term)))) return true;
-
-  // If post is very short (under 15 chars) and no gaming terms, skip
   if (text.trim().length < 15) return false;
-
   return false;
 }
 
 async function isGamingRelevantAI(postText) {
-  if (!ANTHROPIC_API_KEY) return true; // if no API key, don't gate on this
-
-  // Only use AI check for ambiguous posts (no obvious gaming terms)
+  if (!ANTHROPIC_API_KEY) return true;
   const text = postText.toLowerCase();
   const hasObviousTerm = GAMING_TERMS.some(term => text.includes(term));
   if (hasObviousTerm) return true;
@@ -529,12 +494,9 @@ async function isGamingRelevantAI(postText) {
       system: "You are a content classifier. Answer only YES or NO.",
       messages: [{
         role: "user",
-        content: `Is this post about gaming, esports, streaming, or game-related content? Answer only YES or NO.
-
-Post: "${postText.slice(0, 300)}"`
+        content: `Is this post about gaming, esports, streaming, or game-related content? Answer only YES or NO.\n\nPost: "${postText.slice(0, 300)}"`
       }]
     });
-
     const res = await request({
       hostname: "api.anthropic.com",
       path: "/v1/messages",
@@ -545,17 +507,15 @@ Post: "${postText.slice(0, 300)}"`
         "anthropic-version": "2023-06-01",
       },
     }, body);
-
-    if (res.status !== 200) return true; // fail open
+    if (res.status !== 200) return true;
     const answer = res.body.content?.[0]?.text?.trim().toUpperCase();
     return answer === "YES";
   } catch {
-    return true; // fail open on error
+    return true;
   }
 }
 
 async function passesQualityFilters(authorDid, post, token, stats) {
-  // Post recency
   const postDate = new Date(post.indexedAt || post.record?.createdAt || 0);
   const postAgeDays = (Date.now() - postDate) / 86400000;
   if (postAgeDays > MAX_POST_AGE_DAYS) {
@@ -566,7 +526,6 @@ async function passesQualityFilters(authorDid, post, token, stats) {
   const profile = await getProfile(authorDid, token);
   if (!profile) return { pass: true, reason: "no profile" };
 
-  // Follower count
   const followerCount  = profile.followersCount || 0;
   const followingCount = profile.followsCount   || 0;
   if (followerCount < MIN_FOLLOWERS) {
@@ -574,13 +533,11 @@ async function passesQualityFilters(authorDid, post, token, stats) {
     return { pass: false, reason: `too few followers (${followerCount})` };
   }
 
-  // Spam ratio — following way more than followers
   if (followerCount > 0 && followingCount / followerCount > MAX_FOLLOW_RATIO) {
     stats.filteredCount = (stats.filteredCount || 0) + 1;
     return { pass: false, reason: `spam ratio (${followingCount} following / ${followerCount} followers)` };
   }
 
-  // Account age
   if (profile.createdAt) {
     const ageDays = (Date.now() - new Date(profile.createdAt)) / 86400000;
     if (ageDays < MIN_ACCOUNT_DAYS) {
@@ -589,13 +546,11 @@ async function passesQualityFilters(authorDid, post, token, stats) {
     }
   }
 
-  // ── Profile content checks ────────────────────────────────
   const bio         = (profile.description || "").toLowerCase();
   const displayName = (profile.displayName  || "").toLowerCase();
   const handle      = (profile.handle       || "").toLowerCase();
   const profileFull = [bio, displayName, handle].join(" ");
 
-  // Check Bluesky official account labels first (most reliable)
   const profileLabels = profile.labels || [];
   if (profileLabels.some(l => ["porn", "sexual", "nudity", "graphic-media", "adult-only", "nsfw"].includes(l.val))) {
     stats.filteredCount = (stats.filteredCount || 0) + 1;
@@ -603,14 +558,12 @@ async function passesQualityFilters(authorDid, post, token, stats) {
     return { pass: false, reason: `NSFW account label` };
   }
 
-  // NSFW keyword check — plain includes (handles multi-word tags correctly)
   if (containsFilteredTag(profileFull, NSFW_TAGS)) {
     stats.filteredCount = (stats.filteredCount || 0) + 1;
     autoBlock(authorDid, `NSFW keyword in profile: ${NSFW_TAGS.find(t => profileFull.includes(t))}`);
     return { pass: false, reason: `NSFW profile bio/name` };
   }
 
-  // NSFW emoji patterns commonly used in adult profiles
   const rawBio = profile.description || "";
   if (NSFW_EMOJI_LIST.some(e => rawBio.includes(e))) {
     stats.filteredCount = (stats.filteredCount || 0) + 1;
@@ -618,14 +571,12 @@ async function passesQualityFilters(authorDid, post, token, stats) {
     return { pass: false, reason: `NSFW emoji in profile` };
   }
 
-  // Political keyword check — plain includes (handles multi-word tags correctly)
   if (containsFilteredTag(profileFull, POLITICAL_TAGS)) {
     stats.filteredCount = (stats.filteredCount || 0) + 1;
     autoBlock(authorDid, `political keyword in profile: ${POLITICAL_TAGS.find(t => profileFull.includes(t))}`);
     return { pass: false, reason: `political profile bio/name` };
   }
 
-  // Non-English bio check — AI detection to catch Latin-script non-English (German, French, etc.)
   if (bio.length > 10 && ANTHROPIC_API_KEY) {
     try {
       const langCheck = JSON.stringify({
@@ -653,11 +604,8 @@ async function passesQualityFilters(authorDid, post, token, stats) {
         autoBlock(authorDid, "non-English profile bio (AI detected)");
         return { pass: false, reason: `non-English profile bio` };
       }
-    } catch {
-      // fail open — if check errors, don't block on language
-    }
+    } catch {}
   } else if (bio.length > 10 && !isEnglishText(bio)) {
-    // fallback if no API key
     stats.filteredCount = (stats.filteredCount || 0) + 1;
     autoBlock(authorDid, "non-English profile bio");
     return { pass: false, reason: `non-English profile bio` };
@@ -666,7 +614,6 @@ async function passesQualityFilters(authorDid, post, token, stats) {
   return { pass: true, reason: "ok" };
 }
 
-// ── AI Reply generation ───────────────────────────────────
 // ── Thread context fetcher ────────────────────────────────────
 async function getThreadContext(postUri, token) {
   try {
@@ -679,27 +626,24 @@ async function getThreadContext(postUri, token) {
     const thread = res.body.thread;
     const posts  = [];
 
-    // Walk up to root via parent chain
     let current = thread;
     while (current?.parent) {
       current = current.parent;
     }
 
-    // Now walk back down collecting post texts
     function collectPosts(node) {
       if (!node?.post?.record?.text) return;
       posts.push({
         handle: node.post.author?.handle || "unknown",
         text:   node.post.record.text,
       });
-      // Follow the first reply in the chain down to our target
       if (node.replies?.length) {
         collectPosts(node.replies[0]);
       }
     }
 
     collectPosts(current);
-    return posts.length > 1 ? posts : null; // only useful if there's actual thread context
+    return posts.length > 1 ? posts : null;
   } catch {
     return null;
   }
@@ -708,7 +652,6 @@ async function getThreadContext(postUri, token) {
 async function generateReply(postText, authorHandle, persona = "friendly", token = null, postUri = null) {
   if (!ANTHROPIC_API_KEY) return null;
 
-  // Only reply to English posts — AI language check
   try {
     const langCheck = JSON.stringify({
       model: "claude-haiku-4-5-20251001",
@@ -734,11 +677,8 @@ async function generateReply(postText, authorHandle, persona = "friendly", token
       console.log(`   🌐 Skipped reply — non-English post (AI detected)`);
       return null;
     }
-  } catch {
-    // fail open — if check errors, fall through to reply attempt
-  }
+  } catch {}
 
-  // Never reply to political or NSFW posts — use plain includes for reliable multi-word matching
   if (containsFilteredTag(postText, POLITICAL_TAGS)) {
     console.log(`   🚫 Skipped reply — political post`);
     return null;
@@ -756,7 +696,6 @@ async function generateReply(postText, authorHandle, persona = "friendly", token
 
   const instruction = personaInstructions[persona] || personaInstructions.friendly;
 
-  // Detect game context from post text
   const text = postText.toLowerCase();
   let gameContext = "gaming";
   if (text.includes("cs2") || text.includes("counter-strike") || text.includes("counterstrike")) gameContext = "CS2";
@@ -766,7 +705,6 @@ async function generateReply(postText, authorHandle, persona = "friendly", token
   else if (text.includes("minecraft")) gameContext = "Minecraft";
   else if (text.includes("terraria")) gameContext = "Terraria";
 
-  // Fetch thread context if this post is part of a thread
   let threadContext = "";
   if (token && postUri) {
     const threadPosts = await getThreadContext(postUri, token);
@@ -860,38 +798,32 @@ async function runUnfollows(did, token, following, followers, stats) {
   if (whitelist.size > 0) console.log(`🛡️  Whitelist loaded — ${whitelist.size} protected accounts`);
 
   let totalUnfollows = 0;
-  console.log(`\n🧹 Checking for non-followers (14-day follow-back window)...`);
+  console.log(`\n🧹 Checking for non-followers (${FOLLOW_BACK_DAYS}-day follow-back window)...`);
 
   for (const [targetDid, { rkey, handle }] of following.entries()) {
-    // Always keep mutual followers
     if (followers.has(targetDid)) continue;
     if (!rkey) continue;
 
-    // Whitelist check — skip protected accounts
     if (whitelist.has(handle)) {
       console.log(`   🛡️  Skipped @${handle} — whitelisted`);
       continue;
     }
 
-    // Check when we followed this account
     const followedAt = stats.followedAt?.[targetDid]?.followedAt
       ? new Date(stats.followedAt[targetDid].followedAt)
       : null;
 
-    // If we have a follow date and it's within 14 days, give them more time
     if (followedAt && followedAt > followBackCutoff) {
       const daysLeft = Math.ceil((followedAt - followBackCutoff) / 86400000) + FOLLOW_BACK_DAYS;
       console.log(`   ⏳ @${handle} — followed ${Math.floor((Date.now() - followedAt) / 86400000)}d ago, waiting ${FOLLOW_BACK_DAYS - Math.floor((Date.now() - followedAt) / 86400000)}d more`);
       continue;
     }
 
-    // 14 days have passed and they haven't followed back — unfollow
     const ok = await unfollowAccount(did, rkey, token);
     if (ok) {
       totalUnfollows++;
       console.log(`   🗑️  Unfollowed @${handle} (not followed back in ${FOLLOW_BACK_DAYS}+ days)`);
       following.delete(targetDid);
-      // Remove from followedAt tracking
       if (stats.followedAt?.[targetDid]) delete stats.followedAt[targetDid];
     }
     await sleep(800);
@@ -935,7 +867,6 @@ function updateFollowBackRate(stats, followers) {
     if (followers.has(followedDid)) {
       stats.followedAt[followedDid].followedBack = true;
       newFollowBacks++;
-      // Update per-term follow-back rate
       const term = info.term;
       if (term && stats.termFollowBackRate[term]) {
         stats.termFollowBackRate[term].followedBack = (stats.termFollowBackRate[term].followedBack || 0) + 1;
@@ -947,7 +878,6 @@ function updateFollowBackRate(stats, followers) {
     ? ((stats.followBackRate.followedBack / stats.followBackRate.followed) * 100).toFixed(1)
     : "0.0";
   console.log(`📈 Follow-back rate: ${rate}% (${stats.followBackRate.followedBack}/${stats.followBackRate.followed})`);
-  // Log top term follow-back rates
   const termRates = Object.entries(stats.termFollowBackRate)
     .filter(([, d]) => d.followed > 0)
     .map(([term, d]) => ({ term, rate: ((d.followedBack || 0) / d.followed * 100).toFixed(1), followed: d.followed }))
@@ -973,18 +903,16 @@ function pruneLastLikedAt(stats) {
   if (pruned > 0) console.log(`🧹 Pruned ${pruned} stale lastLikedAt entries`);
 }
 
-
 function recordFollowerCount(stats, count) {
   if (!stats.followerHistory) stats.followerHistory = [];
   const today = new Date().toISOString().slice(0, 10);
   const last  = stats.followerHistory[stats.followerHistory.length - 1];
   if (last?.date === today) {
-    last.count = count; // update today's entry
+    last.count = count;
   } else {
     stats.followerHistory.push({ date: today, count });
-    if (stats.followerHistory.length > 30) stats.followerHistory.shift(); // keep 30 days
+    if (stats.followerHistory.length > 30) stats.followerHistory.shift();
   }
-  // Calculate velocity
   if (stats.followerHistory.length >= 2) {
     const oldest = stats.followerHistory[0];
     const days   = (new Date(today) - new Date(oldest.date)) / 86400000 || 1;
@@ -1015,8 +943,8 @@ function logTopTerms(stats) {
 }
 
 // ── Auto-trim dead search terms ───────────────────────────────
-const DEAD_TERM_MIN_RUNS     = 15;   // minimum runs before eligible for trimming
-const DEAD_TERM_MIN_AVG      = 0.5;  // minimum avg engagements per run to keep
+const DEAD_TERM_MIN_RUNS     = 15;
+const DEAD_TERM_MIN_AVG      = 0.5;
 
 async function autoTrimDeadTerms(stats) {
   if (!stats.termPerformance) return;
@@ -1024,8 +952,8 @@ async function autoTrimDeadTerms(stats) {
   const trimmed = [];
 
   for (const [term, data] of Object.entries(stats.termPerformance)) {
-    if (data.runs < DEAD_TERM_MIN_RUNS) continue; // not enough data yet
-    if (PROTECTED_TERMS.has(term)) continue;       // never trim protected terms
+    if (data.runs < DEAD_TERM_MIN_RUNS) continue;
+    if (PROTECTED_TERMS.has(term)) continue;
 
     const avgEngagement = (data.likes + data.follows) / data.runs;
     if (avgEngagement < DEAD_TERM_MIN_AVG) {
@@ -1038,20 +966,17 @@ async function autoTrimDeadTerms(stats) {
     console.log(`\n✂️  Auto-trimmed ${trimmed.length} dead search term(s):`);
     trimmed.forEach(t => console.log(`   - "${t.term}" — ${t.avgEngagement} avg engagement/run over ${t.runs} runs`));
 
-    // Also remove from termFollowBackRate
     if (stats.termFollowBackRate) {
       trimmed.forEach(({ term }) => {
         if (stats.termFollowBackRate[term]) delete stats.termFollowBackRate[term];
       });
     }
 
-    // Save to trimmed_terms.json so they're excluded from future searches
     const trimmedSet = loadTrimmedTerms();
     trimmed.forEach(({ term }) => trimmedSet.add(term));
     saveTrimmedTerms(trimmedSet);
     console.log(`💾 Saved ${trimmedSet.size} total trimmed term(s) to ${TRIMMED_TERMS_PATH}`);
 
-    // Post Discord notification
     if (DISCORD_WEBHOOK_URL) {
       try {
         const url = new URL(DISCORD_WEBHOOK_URL);
@@ -1087,9 +1012,7 @@ async function cycleInNextCandidate(trimmedCount) {
 
   const candidates = loadCandidateTerms();
   const queued = candidates.filter(c => c.status === "queued");
-  const active = candidates.filter(c => c.status === "active");
 
-  // Only cycle in if we have room and queued candidates
   const currentActiveCount = SEARCH_TERMS.length;
   const slotsAvailable = Math.max(0, MAX_ACTIVE_SEARCH_TERMS - currentActiveCount + trimmedCount);
   const toActivate = queued.slice(0, Math.min(trimmedCount, slotsAvailable));
@@ -1125,7 +1048,6 @@ async function cycleInNextCandidate(trimmedCount) {
 }
 
 // ── Discover new search terms from Bluesky ────────────────────
-// Valid game identifiers to ensure discovered terms are gaming-related
 const GAME_SEEDS = [
   { game: "CS2",            seed: "CS2" },
   { game: "Apex Legends",   seed: "apex legends" },
@@ -1134,7 +1056,6 @@ const GAME_SEEDS = [
   { game: "Terraria",       seed: "terraria" },
 ];
 
-// Known non-gaming hashtags to always reject
 const HASHTAG_BLOCKLIST = new Set([
   "art", "music", "politics", "news", "crypto", "nft", "ai", "love",
   "photography", "food", "travel", "fashion", "fitness", "health",
@@ -1152,7 +1073,6 @@ async function discoverNewTerms(token, stats) {
 
   const discovered = [];
 
-  // Pick a random game seed to search this run
   const seed = GAME_SEEDS[Math.floor(Math.random() * GAME_SEEDS.length)];
   console.log(`\n🔍 Discovering new terms via "${seed.seed}" (${seed.game})...`);
 
@@ -1161,27 +1081,22 @@ async function discoverNewTerms(token, stats) {
     const hashtagCounts = {};
 
     for (const post of posts) {
-      const text = (post.record?.text || "").toLowerCase();
       const tags = (post.record?.text || "").match(/#\w+/g) || [];
 
       for (const tag of tags) {
         const clean = tag.toLowerCase();
-        // Skip if already known, blocked, or too short
         if (existingTerms.has(clean)) continue;
         if (existingTerms.has(tag)) continue;
         if (clean.length < 4) continue;
         if (HASHTAG_BLOCKLIST.has(clean.slice(1))) continue;
 
-        // Must contain a gaming-related keyword or game name
-        const tagWord = clean.slice(1); // remove #
+        const tagWord = clean.slice(1);
         const isGamingRelated = GAMING_TERMS.some(t => tagWord.includes(t) || t.includes(tagWord)) ||
           ["cs2", "apex", "overwatch", "minecraft", "terraria", "valorant", "gaming",
            "gamer", "fps", "esport", "streamer", "siege", "fortnite", "league",
            "rocket", "halo", "cod", "battlefield", "steam", "indie"].some(g => tagWord.includes(g));
 
         if (!isGamingRelated) continue;
-
-        // NSFW/political filter
         if (containsFilteredTag(clean, NSFW_TAGS)) continue;
         if (containsFilteredTag(clean, POLITICAL_TAGS)) continue;
 
@@ -1189,7 +1104,6 @@ async function discoverNewTerms(token, stats) {
       }
     }
 
-    // Sort by frequency and take top candidates
     const sorted = Object.entries(hashtagCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, MAX_CANDIDATE_DISCOVERY);
@@ -1241,6 +1155,7 @@ async function discoverNewTerms(token, stats) {
 
   return discovered;
 }
+
 async function selfTest() {
   console.log("🔧 Running self-test...");
   const errors = [];
@@ -1248,7 +1163,6 @@ async function selfTest() {
   if (!BLUESKY_HANDLE)   errors.push("BLUESKY_HANDLE not set");
   if (!BLUESKY_PASSWORD) errors.push("BLUESKY_PASSWORD not set");
 
-  // Test Bluesky connectivity
   try {
     const res = await apiRequest(
       `app.bsky.actor.getProfile?actor=${encodeURIComponent(BLUESKY_HANDLE)}`,
@@ -1260,7 +1174,6 @@ async function selfTest() {
     errors.push(`Bluesky API unreachable: ${e.message}`);
   }
 
-  // Test Anthropic if key provided
   if (ANTHROPIC_API_KEY) {
     try {
       const res = await request({
@@ -1337,15 +1250,12 @@ function pruneLastRepliedAt(stats) {
   }
 }
 
-// ── Repost / quote detection ──────────────────────────────
 function isOriginalPost(post) {
-  // Skip reposts (reason === "repost") and quote posts
   if (post.reason?.$type === "app.bsky.feed.defs#reasonRepost") return false;
-  if (post.record?.embed?.$type === "app.bsky.embed.record") return false; // quote post
+  if (post.record?.embed?.$type === "app.bsky.embed.record") return false;
   return true;
 }
 
-// ── Net follower gain ─────────────────────────────────────
 function getNetFollowerGain(stats, currentCount) {
   if (!stats.followerHistory || stats.followerHistory.length < 2) return 0;
   const prev = stats.followerHistory[stats.followerHistory.length - 2];
@@ -1358,7 +1268,6 @@ async function checkReplyEngagement(did, token, stats) {
   if (!stats.replyEngagement) stats.replyEngagement = { sent: 0, gotLiked: 0, gotReplied: 0 };
   if (!stats.replyPersonaStats) stats.replyPersonaStats = {};
 
-  // Only check replies from the last 7 days
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 7);
   const recent = stats.sentReplies.filter(r => new Date(r.sentAt) > cutoff);
@@ -1393,7 +1302,6 @@ async function checkReplyEngagement(did, token, stats) {
 
   if (newLikes + newReplies > 0) {
     console.log(`💬 Reply engagement: ${newLikes} replies got liked, ${newReplies} got replied to`);
-    // Log persona breakdown
     const personaSummary = Object.entries(stats.replyPersonaStats)
       .filter(([, d]) => d.sent > 0)
       .map(([p, d]) => `${p}: ${d.gotLiked || 0}❤️ ${d.gotReplied || 0}💬 / ${d.sent} sent`)
@@ -1401,7 +1309,6 @@ async function checkReplyEngagement(did, token, stats) {
     if (personaSummary) console.log(`   🎭 Persona breakdown: ${personaSummary}`);
   }
 }
-
 
 // ── English detection ──────────────────────────────────────
 function isEnglishText(text) {
@@ -1425,24 +1332,14 @@ function isNSFW(post) {
   const labels = post.labels || [];
   const tags   = post.record?.tags || [];
 
-  // Check Bluesky's built-in content labels
   if (labels.some(l => ["porn", "sexual", "nudity", "graphic-media"].includes(l.val))) return true;
-
-  // Check post text for NSFW keywords — plain includes (handles multi-word tags correctly)
   if (containsFilteredTag(text, NSFW_TAGS)) return true;
-
-  // Check post tags for NSFW
   if (tags.some(t => NSFW_TAGS.includes(t.toLowerCase()))) return true;
-
-  // Check political keywords in text — plain includes (handles multi-word tags correctly)
   if (containsFilteredTag(text, POLITICAL_TAGS)) return true;
-
-  // Check political keywords in post tags
   if (tags.some(t => POLITICAL_TAGS.includes(t.toLowerCase()))) return true;
 
   return false;
 }
-
 
 function isPaused() {
   if (!fs.existsSync(PAUSE_PATH)) return false;
@@ -1450,7 +1347,6 @@ function isPaused() {
   catch { return false; }
 }
 
-// ── Engagement score ──────────────────────────────────────
 function scorePost(post) {
   const likes    = post.likeCount    || 0;
   const replies  = post.replyCount   || 0;
@@ -1458,7 +1354,6 @@ function scorePost(post) {
   return (likes * SCORE_LIKE_WEIGHT) + (replies * SCORE_REPLY_WEIGHT) + (reposts * SCORE_REPOST_WEIGHT);
 }
 
-// ── Mutual network ────────────────────────────────────────
 async function getMutualNetwork(did, token) {
   if (!MUTUAL_NETWORK_BOOST) return new Set();
   const mutuals = new Set();
@@ -1473,19 +1368,16 @@ async function getMutualNetwork(did, token) {
   return mutuals;
 }
 
-// ── Smart unfollow timing ─────────────────────────────────
 function shouldRunUnfollows(stats) {
   const today = new Date().toISOString().slice(0, 10);
   if (stats.lastUnfollowDate === today) return false;
   return true;
 }
 
-// ── Reply persona ─────────────────────────────────────────
 function getReplyPersona(stats) {
   const idx = (stats.totalReplies || 0) % REPLY_PERSONAS.length;
   return REPLY_PERSONAS[idx];
 }
-
 
 const WHITELIST_PATH   = "data/whitelist.json";
 
@@ -1507,15 +1399,16 @@ function saveBlockList(blockList) {
   fs.writeFileSync(BLOCK_LIST_PATH, JSON.stringify(_blockListStore, null, 2));
 }
 
-function autoBlock(did, reason, stats = null, handle = null, following = null, myDid = null, token = null) {
+// ── autoBlock — adds to runtime blockList Set to prevent re-follow in same run ──
+function autoBlock(did, reason, stats = null, handle = null, following = null, myDid = null, token = null, blockList = null) {
   const list = loadBlockList();
   if (!list.has(did)) {
     list.add(did);
     saveBlockList(list);
+    // Add to runtime blockList Set so bot skips this DID for rest of current run
+    if (blockList) blockList.add(did);
     console.log(`   🚫 Auto-blocked ${handle || did} — ${reason}`);
-    // Log filter hit
     if (stats) recordFilterHit(stats, handle || did, reason);
-    // Auto-unfollow if we're following them
     if (following && myDid && token && following.has(did)) {
       const rkey = following.get(did)?.rkey;
       if (rkey) {
@@ -1537,10 +1430,9 @@ function addToBlockList(did, handle) {
   console.log(`🚫 Added @${handle} to block list`);
 }
 
-// ── Spike detector ────────────────────────────────────────
 function checkForSpike(stats, actionsThisRun) {
   const history = stats.actionsHistory || [];
-  if (history.length < 3) return false; // not enough data
+  if (history.length < 3) return false;
 
   const avg = history.reduce((a, b) => a + b, 0) / history.length;
   if (avg === 0) return false;
@@ -1558,13 +1450,11 @@ function recordRunActions(stats, count) {
   if (stats.actionsHistory.length > 20) stats.actionsHistory.shift();
 }
 
-// ── Run history ───────────────────────────────────────────
 function recordRunHistory(stats, entry) {
   if (!stats.runHistory) stats.runHistory = [];
-  stats.runHistory.unshift(entry); // newest first
+  stats.runHistory.unshift(entry);
   if (stats.runHistory.length > 10) stats.runHistory.pop();
 }
-
 
 async function checkAndPostMilestones(followerCount, stats, token, did) {
   if (!stats.milestonesCelebrated) stats.milestonesCelebrated = [];
@@ -1598,7 +1488,6 @@ async function checkAndPostMilestones(followerCount, stats, token, did) {
   }
 }
 
-// ── Weekly summary post ───────────────────────────────────
 async function checkAndPostWeeklySummary(stats, token, did, followerCount) {
   const now   = new Date();
   const today = now.toISOString().slice(0, 10);
@@ -1644,11 +1533,9 @@ async function run() {
 
   await selfTest();
 
-  // Load all data from Gist on startup (falls back to local files if unavailable)
   const gist = await fetchGist();
   initFromGist(gist);
 
-  // Pause mode check
   if (isPaused()) {
     console.log("⏸️  Bot is paused — skipping run. Toggle pause off in the dashboard to resume.");
     return;
@@ -1658,14 +1545,12 @@ async function run() {
   pruneLastLikedAt(stats);
   pruneLastRepliedAt(stats);
 
-  // Daily cap check
   const dailyUsed = getDailyActionsUsed(stats);
   if (dailyUsed >= DAILY_ACTION_CAP) {
     console.log(`⛔ Daily action cap reached (${dailyUsed}/${DAILY_ACTION_CAP}) — skipping run`);
     return;
   }
 
-  // Hourly rate check
   const hourlyUsed = getHourlyActionsUsed(stats);
   if (hourlyUsed >= HOURLY_LIMIT) {
     console.log(`⏳ Hourly rate limit reached (${hourlyUsed}/${HOURLY_LIMIT}) — skipping run`);
@@ -1684,26 +1569,16 @@ async function run() {
   const mutualNetwork   = await getMutualNetwork(did, token);
   console.log(`🤝 Mutual network: ${mutualNetwork.size} accounts`);
 
-  // Net follower gain since last run
   const netFollowers = getNetFollowerGain(stats, followerCount);
   if (netFollowers !== 0) console.log(`👥 Net followers since last run: ${netFollowers >= 0 ? "+" : ""}${netFollowers}`);
 
-  // Check reply engagement
   await checkReplyEngagement(did, token, stats);
-
-  // Check follower milestones
   await checkAndPostMilestones(followerCount, stats, token, did);
-
-  // Check weekly summary
   await checkAndPostWeeklySummary(stats, token, did, followerCount);
 
-  // Record follower count for growth velocity
   recordFollowerCount(stats, followerCount);
-
-  // Update follow-back rate
   updateFollowBackRate(stats, followers);
 
-  // Unfollow inactive non-followers — runs once per day on first cycle
   let totalUnfollows = 0;
   if (shouldRunUnfollows(stats)) {
     totalUnfollows = await runUnfollows(did, token, following, followers, stats);
@@ -1712,7 +1587,6 @@ async function run() {
     console.log(`⏰ Unfollow check skipped — already ran today (${stats.lastUnfollowDate})`);
   }
 
-  // Like back new followers
   const likeBackCount = await runLikeBackFollowers(did, token, following, followers, stats);
 
   let totalLikes   = likeBackCount;
@@ -1722,9 +1596,8 @@ async function run() {
 
   console.log(`\n🔎 Search terms: ${SEARCH_TERMS.join(", ")}`);
 
-  // Collect all posts, track per-term results
   const latestPostByAuthor = new Map();
-  const postTermMap = new Map(); // authorDid → term that found them
+  const postTermMap = new Map();
 
   for (const term of SEARCH_TERMS) {
     console.log(`\n🔍 Searching "${term}"...`);
@@ -1737,18 +1610,16 @@ async function run() {
       if (authorDid === did) continue;
       if (!isOriginalPost(post)) continue;
 
-      // Skip image-only posts — no text to filter or reply to
       const postText = (post.record?.text || "").trim();
       if (postText.length < 5) continue;
 
       if (isNSFW(post)) {
         const keyword = findFilteredTag(postText, NSFW_TAGS) || findFilteredTag(postText, POLITICAL_TAGS);
         console.log(`   🚫 Skipped filtered post (NSFW/political) by @${post.author?.handle}${keyword ? ` [${keyword}]` : ""}`);
-        if (authorDid) autoBlock(authorDid, `NSFW/political post content${keyword ? `: ${keyword}` : ""}`, stats, post.author?.handle, following, did, token);
+        if (authorDid) autoBlock(authorDid, `NSFW/political post content${keyword ? `: ${keyword}` : ""}`, stats, post.author?.handle, following, did, token, blockList);
         continue;
       }
 
-      // Quick gaming relevance check — skip if no gaming terms found
       if (!isGamingRelevant(post)) continue;
       const existing     = latestPostByAuthor.get(authorDid);
       const postDate     = new Date(post.indexedAt || post.record?.createdAt || 0);
@@ -1762,16 +1633,14 @@ async function run() {
 
   console.log(`\n📋 ${latestPostByAuthor.size} unique authors found`);
 
-  // Sort authors by engagement score, boosting mutual network accounts
   const sortedAuthors = [...latestPostByAuthor.entries()].sort(([didA, postA], [didB, postB]) => {
     let scoreA = scorePost(postA);
     let scoreB = scorePost(postB);
-    if (mutualNetwork.has(didA)) scoreA += 10; // boost mutual network
+    if (mutualNetwork.has(didA)) scoreA += 10;
     if (mutualNetwork.has(didB)) scoreB += 10;
     return scoreB - scoreA;
   });
 
-  // Filter by minimum engagement score
   const filteredAuthors = MIN_ENGAGEMENT_SCORE > 0
     ? sortedAuthors.filter(([, post]) => scorePost(post) >= MIN_ENGAGEMENT_SCORE)
     : sortedAuthors;
@@ -1798,7 +1667,6 @@ async function run() {
       continue;
     }
 
-    // Quality filters
     const { pass, reason } = await passesQualityFilters(authorDid, post, token, stats);
     if (!pass) {
       console.log(`   🚫 Skipped @${post.author?.handle} — ${reason}`);
@@ -1807,7 +1675,6 @@ async function run() {
       continue;
     }
 
-    // AI relevance check for ambiguous posts (only fires if no obvious gaming terms)
     const postText = post.record?.text || "";
     const relevant = await isGamingRelevantAI(postText);
     if (!relevant) {
@@ -1817,7 +1684,6 @@ async function run() {
       continue;
     }
 
-    // Post text language check — skip non-English posts before liking
     if (ANTHROPIC_API_KEY && postText.length > 10) {
       try {
         const langCheck = JSON.stringify({
@@ -1838,14 +1704,13 @@ async function run() {
           await sleep(300);
           continue;
         }
-      } catch { /* fail open */ }
+      } catch {}
     }
 
     const postDate  = new Date(post.indexedAt || post.record?.createdAt || 0);
     const lastLiked = stats.lastLikedAt[authorDid] ? new Date(stats.lastLikedAt[authorDid]) : null;
     const term      = postTermMap.get(authorDid) || SEARCH_TERMS[0];
 
-    // Profile fetch fallback for stale posts
     let targetPost = post;
     if (lastLiked && postDate <= lastLiked) {
       const latestPost = await getLatestPost(authorDid, token);
@@ -1871,7 +1736,6 @@ async function run() {
               stats.followedAt[authorDid] = { handle: post.author?.handle, followedBack: false, followedAt: new Date().toISOString(), term };
               stats.followBackRate.followed++;
               termFollows[term] = (termFollows[term] || 0) + 1;
-              // Term follow-back tracking
               if (!stats.termFollowBackRate) stats.termFollowBackRate = {};
               if (!stats.termFollowBackRate[term]) stats.termFollowBackRate[term] = { followed: 0, followedBack: 0 };
               stats.termFollowBackRate[term].followed++;
@@ -1890,7 +1754,6 @@ async function run() {
       }
     }
 
-    // Like
     const liked = await likePost(targetPost.uri, targetPost.cid, did, token);
     if (liked) {
       totalLikes++;
@@ -1903,7 +1766,6 @@ async function run() {
       recordHourlyAction(stats);
       recordDailyAction(stats);
 
-      // AI reply every REPLY_FREQUENCY likes
       if (ANTHROPIC_API_KEY && likesSinceLastReply >= REPLY_FREQUENCY) {
         const postText = targetPost.record?.text || "";
         if (postText.length >= MIN_REPLY_TEXT_LEN && canReply(authorDid, stats)) {
@@ -1922,10 +1784,8 @@ async function run() {
                 checkedEngagement: false,
                 persona: currentPersona,
               });
-              // Keep only last 50 sent replies
               if (stats.sentReplies.length > 50) stats.sentReplies.shift();
               stats.replyEngagement.sent++;
-              // Track per-persona stats
               if (!stats.replyPersonaStats) stats.replyPersonaStats = {};
               if (!stats.replyPersonaStats[currentPersona]) stats.replyPersonaStats[currentPersona] = { sent: 0, gotLiked: 0, gotReplied: 0 };
               stats.replyPersonaStats[currentPersona].sent++;
@@ -1939,7 +1799,6 @@ async function run() {
       }
     }
 
-    // Follow
     if (!following.has(authorDid)) {
       const followed = await followAccount(authorDid, did, token);
       if (followed) {
@@ -1948,7 +1807,6 @@ async function run() {
         stats.followedAt[authorDid] = { handle: post.author?.handle, followedBack: false, followedAt: new Date().toISOString(), term };
         stats.followBackRate.followed++;
         termFollows[term] = (termFollows[term] || 0) + 1;
-        // Term follow-back tracking
         if (!stats.termFollowBackRate) stats.termFollowBackRate = {};
         if (!stats.termFollowBackRate[term]) stats.termFollowBackRate[term] = { followed: 0, followedBack: 0 };
         stats.termFollowBackRate[term].followed++;
@@ -1961,7 +1819,6 @@ async function run() {
     await sleep(800);
   }
 
-  // Record term performance
   for (const term of SEARCH_TERMS) {
     recordTermPerformance(stats, term, termLikes[term] || 0, termFollows[term] || 0);
   }
@@ -1973,7 +1830,6 @@ async function run() {
 
   const totalActions = totalLikes + totalFollows + totalReplies;
 
-  // Spike detection — halt if actions are abnormally high
   if (checkForSpike(stats, totalActions)) {
     saveStats(stats);
     await saveStatsToGist(stats);
@@ -2020,7 +1876,6 @@ async function run() {
 
   console.log(`📊 Cumulative — ${stats.totalLikes} likes, ${stats.totalFollows} follows, ${stats.totalUnfollows} unfollows, ${stats.totalReplies} replies across ${stats.runs} runs`);
 
-  // Post Discord summary
   await postDiscordSummary({
     likes: totalLikes, follows: totalFollows, unfollows: totalUnfollows,
     replies: totalReplies, followBackRate: rate,
