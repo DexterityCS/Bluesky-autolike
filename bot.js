@@ -8,7 +8,7 @@ const BLUESKY_PASSWORD   = process.env.BLUESKY_PASSWORD;
 const ANTHROPIC_API_KEY  = process.env.ANTHROPIC_API_KEY;
 const ACTIONS_PER_RUN    = parseInt(process.env.ACTIONS_PER_RUN || "25");
 const INACTIVE_DAYS      = 60;   // unfollow if inactive this long (still used as secondary check)
-const FOLLOW_BACK_DAYS   = 7;   // unfollow if not followed back within this many days
+const FOLLOW_BACK_DAYS   = 7;    // unfollow if not followed back within this many days
 
 // Engagement quality filters
 const MIN_FOLLOWERS      = 25;
@@ -55,13 +55,11 @@ const PAUSE_PATH = "pause.json";
 
 const DEFAULT_TERMS = [
   // CS2
-  "#CS2", "#CounterStrike", "#CounterStrike2", "#CS2clips", "CS2", "counter-strike",
+  "#CS2", "CS2", "counter-strike",
   // Apex Legends
-  "#ApexLegends", "#Apex", "apex legends",
-  // Rainbow Six Siege
-  "#RainbowSixSiege", "#R6Siege", "#R6",
+  "#ApexLegends", "apex legends",
   // Overwatch
-  "#Overwatch", "#Overwatch2", "#OW2",
+  "#Overwatch",
   // Minecraft
   "#Minecraft", "minecraft",
   // Terraria
@@ -123,10 +121,51 @@ const NSFW_EMOJI_LIST = [
   "🍒", "🌶️", "🔥🔥🔥", "💯🔥",
 ];
 
+const TRIMMED_TERMS_PATH    = "trimmed_terms.json";
+const CANDIDATE_TERMS_PATH  = "candidate_terms.json";
+
+// Term discovery config
+const MAX_CANDIDATE_DISCOVERY = 5;   // max new candidates to discover per run
+const MAX_ACTIVE_SEARCH_TERMS = 15;  // max total active search terms at once
+
+function loadTrimmedTerms() {
+  if (!fs.existsSync(TRIMMED_TERMS_PATH)) return new Set();
+  try { return new Set(JSON.parse(fs.readFileSync(TRIMMED_TERMS_PATH, "utf8"))); }
+  catch { return new Set(); }
+}
+
+function saveTrimmedTerms(trimmedSet) {
+  fs.writeFileSync(TRIMMED_TERMS_PATH, JSON.stringify([...trimmedSet], null, 2));
+}
+
+function loadCandidateTerms() {
+  if (!fs.existsSync(CANDIDATE_TERMS_PATH)) return [];
+  try { return JSON.parse(fs.readFileSync(CANDIDATE_TERMS_PATH, "utf8")); }
+  catch { return []; }
+}
+
+function saveCandidateTerms(candidates) {
+  fs.writeFileSync(CANDIDATE_TERMS_PATH, JSON.stringify(candidates, null, 2));
+}
+
+const TRIMMED_TERMS = loadTrimmedTerms();
+const CANDIDATE_TERMS = loadCandidateTerms();
+const ACTIVE_CANDIDATES = CANDIDATE_TERMS.filter(c => c.status === "active").map(c => c.term);
+
 const NSFW_ACCOUNTS = new Set(); // populated from blocklist
-const SEARCH_TERMS  = process.env.SEARCH_TERMS
-  ? process.env.SEARCH_TERMS.split(",").map(s => s.trim()).filter(Boolean)
-  : DEFAULT_TERMS;
+const SEARCH_TERMS  = [
+  ...(process.env.SEARCH_TERMS
+    ? process.env.SEARCH_TERMS.split(",").map(s => s.trim()).filter(Boolean)
+    : DEFAULT_TERMS),
+  ...ACTIVE_CANDIDATES,
+].filter(t => !TRIMMED_TERMS.has(t));
+
+if (TRIMMED_TERMS.size > 0) {
+  console.log(`✂️  Skipping ${TRIMMED_TERMS.size} auto-trimmed term(s): ${[...TRIMMED_TERMS].join(", ")}`);
+}
+if (ACTIVE_CANDIDATES.length > 0) {
+  console.log(`🧪 Testing ${ACTIVE_CANDIDATES.length} candidate term(s): ${ACTIVE_CANDIDATES.join(", ")}`);
+}
 
 const POSTS_PER_SEARCH = 100;
 const STATS_PATH       = "stats.json";
@@ -896,7 +935,232 @@ function logTopTerms(stats) {
   });
 }
 
-// ── Self-test ─────────────────────────────────────────────
+// ── Auto-trim dead search terms ───────────────────────────────
+const DEAD_TERM_MIN_RUNS     = 15;   // minimum runs before eligible for trimming
+const DEAD_TERM_MIN_AVG      = 0.5;  // minimum avg engagements per run to keep
+
+async function autoTrimDeadTerms(stats) {
+  if (!stats.termPerformance) return;
+
+  const trimmed = [];
+
+  for (const [term, data] of Object.entries(stats.termPerformance)) {
+    if (data.runs < DEAD_TERM_MIN_RUNS) continue; // not enough data yet
+
+    const avgEngagement = (data.likes + data.follows) / data.runs;
+    if (avgEngagement < DEAD_TERM_MIN_AVG) {
+      trimmed.push({ term, avgEngagement: avgEngagement.toFixed(2), runs: data.runs });
+      delete stats.termPerformance[term];
+    }
+  }
+
+  if (trimmed.length > 0) {
+    console.log(`\n✂️  Auto-trimmed ${trimmed.length} dead search term(s):`);
+    trimmed.forEach(t => console.log(`   - "${t.term}" — ${t.avgEngagement} avg engagement/run over ${t.runs} runs`));
+
+    // Also remove from termFollowBackRate
+    if (stats.termFollowBackRate) {
+      trimmed.forEach(({ term }) => {
+        if (stats.termFollowBackRate[term]) delete stats.termFollowBackRate[term];
+      });
+    }
+
+    // Save to trimmed_terms.json so they're excluded from future searches
+    const trimmedSet = loadTrimmedTerms();
+    trimmed.forEach(({ term }) => trimmedSet.add(term));
+    saveTrimmedTerms(trimmedSet);
+    console.log(`💾 Saved ${trimmedSet.size} total trimmed term(s) to ${TRIMMED_TERMS_PATH}`);
+
+    // Post Discord notification
+    if (DISCORD_WEBHOOK_URL) {
+      try {
+        const url = new URL(DISCORD_WEBHOOK_URL);
+        const body = JSON.stringify({
+          embeds: [{
+            title: "✂️ Search Terms Auto-Trimmed",
+            color: 0xff8c1e,
+            description: trimmed.map(t =>
+              `**"${t.term}"** — ${t.avgEngagement} avg engagement/run over ${t.runs} runs`
+            ).join("\n"),
+            footer: { text: `${trimmed.length} term(s) removed • These terms will no longer be searched automatically` },
+          }]
+        });
+        await request({
+          hostname: url.hostname,
+          path: url.pathname + url.search,
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        }, body);
+        console.log("📨 Discord trim notification posted");
+      } catch (e) {
+        console.warn(`Discord trim notification failed: ${e.message}`);
+      }
+    }
+  }
+
+  return trimmed;
+}
+
+// ── Cycle in next candidate when a term is trimmed ────────────
+async function cycleInNextCandidate(trimmedCount) {
+  if (trimmedCount === 0) return;
+
+  const candidates = loadCandidateTerms();
+  const queued = candidates.filter(c => c.status === "queued");
+  const active = candidates.filter(c => c.status === "active");
+
+  // Only cycle in if we have room and queued candidates
+  const currentActiveCount = SEARCH_TERMS.length;
+  const slotsAvailable = Math.max(0, MAX_ACTIVE_SEARCH_TERMS - currentActiveCount + trimmedCount);
+  const toActivate = queued.slice(0, Math.min(trimmedCount, slotsAvailable));
+
+  if (toActivate.length === 0) return;
+
+  toActivate.forEach(c => { c.status = "active"; c.activatedAt = new Date().toISOString(); });
+  saveCandidateTerms(candidates);
+
+  console.log(`🔄 Cycled in ${toActivate.length} new term(s): ${toActivate.map(c => c.term).join(", ")}`);
+
+  if (DISCORD_WEBHOOK_URL) {
+    try {
+      const url = new URL(DISCORD_WEBHOOK_URL);
+      const body = JSON.stringify({
+        embeds: [{
+          title: "🔄 New Search Terms Activated",
+          color: 0x00e5ff,
+          description: toActivate.map(c => `**"${c.term}"** — discovered from ${c.sourceGame}`).join("\n"),
+          footer: { text: `${queued.length - toActivate.length} term(s) still queued` },
+        }]
+      });
+      await request({
+        hostname: url.hostname,
+        path: url.pathname + url.search,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      }, body);
+    } catch (e) {
+      console.warn(`Discord cycle notification failed: ${e.message}`);
+    }
+  }
+}
+
+// ── Discover new search terms from Bluesky ────────────────────
+// Valid game identifiers to ensure discovered terms are gaming-related
+const GAME_SEEDS = [
+  { game: "CS2",            seed: "CS2" },
+  { game: "Apex Legends",   seed: "apex legends" },
+  { game: "Overwatch",      seed: "#Overwatch" },
+  { game: "Minecraft",      seed: "minecraft" },
+  { game: "Terraria",       seed: "terraria" },
+];
+
+// Known non-gaming hashtags to always reject
+const HASHTAG_BLOCKLIST = new Set([
+  "art", "music", "politics", "news", "crypto", "nft", "ai", "love",
+  "photography", "food", "travel", "fashion", "fitness", "health",
+  "memes", "funny", "anime", "manga", "vtuber", "stream", "twitch",
+  "twitter", "bluesky", "fediverse", "mastodon",
+]);
+
+async function discoverNewTerms(token, stats) {
+  const candidates = loadCandidateTerms();
+  const existingTerms = new Set([
+    ...SEARCH_TERMS,
+    ...candidates.map(c => c.term),
+    ...[...loadTrimmedTerms()],
+  ]);
+
+  const discovered = [];
+
+  // Pick a random game seed to search this run
+  const seed = GAME_SEEDS[Math.floor(Math.random() * GAME_SEEDS.length)];
+  console.log(`\n🔍 Discovering new terms via "${seed.seed}" (${seed.game})...`);
+
+  try {
+    const posts = await searchPosts(seed.seed, token);
+    const hashtagCounts = {};
+
+    for (const post of posts) {
+      const text = (post.record?.text || "").toLowerCase();
+      const tags = (post.record?.text || "").match(/#\w+/g) || [];
+
+      for (const tag of tags) {
+        const clean = tag.toLowerCase();
+        // Skip if already known, blocked, or too short
+        if (existingTerms.has(clean)) continue;
+        if (existingTerms.has(tag)) continue;
+        if (clean.length < 4) continue;
+        if (HASHTAG_BLOCKLIST.has(clean.slice(1))) continue;
+
+        // Must contain a gaming-related keyword or game name
+        const tagWord = clean.slice(1); // remove #
+        const isGamingRelated = GAMING_TERMS.some(t => tagWord.includes(t) || t.includes(tagWord)) ||
+          ["cs2", "apex", "overwatch", "minecraft", "terraria", "valorant", "gaming",
+           "gamer", "fps", "esport", "streamer", "siege", "fortnite", "league",
+           "rocket", "halo", "cod", "battlefield", "steam", "indie"].some(g => tagWord.includes(g));
+
+        if (!isGamingRelated) continue;
+
+        // NSFW/political filter
+        if (containsFilteredTag(clean, NSFW_TAGS)) continue;
+        if (containsFilteredTag(clean, POLITICAL_TAGS)) continue;
+
+        hashtagCounts[tag] = (hashtagCounts[tag] || 0) + 1;
+      }
+    }
+
+    // Sort by frequency and take top candidates
+    const sorted = Object.entries(hashtagCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, MAX_CANDIDATE_DISCOVERY);
+
+    for (const [tag, count] of sorted) {
+      if (discovered.length >= MAX_CANDIDATE_DISCOVERY) break;
+      candidates.push({
+        term: tag,
+        sourceGame: seed.game,
+        discoveredAt: new Date().toISOString(),
+        status: "queued",
+        frequency: count,
+      });
+      discovered.push(tag);
+      existingTerms.add(tag);
+      console.log(`   💡 Discovered: "${tag}" (seen ${count}x in ${seed.game} posts)`);
+    }
+
+    if (discovered.length > 0) {
+      saveCandidateTerms(candidates);
+
+      if (DISCORD_WEBHOOK_URL) {
+        try {
+          const url = new URL(DISCORD_WEBHOOK_URL);
+          const body = JSON.stringify({
+            embeds: [{
+              title: "💡 New Search Terms Discovered",
+              color: 0x00ff88,
+              description: discovered.map(t => `**"${t}"** — found in ${seed.game} posts`).join("\n"),
+              footer: { text: `Added to queue • Will activate when slots open up` },
+            }]
+          });
+          await request({
+            hostname: url.hostname,
+            path: url.pathname + url.search,
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+          }, body);
+        } catch (e) {
+          console.warn(`Discord discovery notification failed: ${e.message}`);
+        }
+      }
+    } else {
+      console.log(`   No new gaming terms found this run`);
+    }
+  } catch (e) {
+    console.warn(`Term discovery failed: ${e.message}`);
+  }
+
+  return discovered;
+}
 async function selfTest() {
   console.log("🔧 Running self-test...");
   const errors = [];
@@ -1617,6 +1881,9 @@ async function run() {
   }
 
   logTopTerms(stats);
+  const trimmedThisRun = await autoTrimDeadTerms(stats);
+  await cycleInNextCandidate(trimmedThisRun ? trimmedThisRun.length : 0);
+  await discoverNewTerms(token, stats);
 
   const totalActions = totalLikes + totalFollows + totalReplies;
 
