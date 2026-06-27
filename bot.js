@@ -137,24 +137,46 @@ const PROTECTED_TERMS = new Set([
   "#Terraria", "terraria",
 ]);
 
+// In-memory stores — populated from Gist on startup, written back at end of run
+let _blockListStore   = null;
+let _trimmedStore     = null;
+let _candidateStore   = null;
+
 function loadTrimmedTerms() {
+  if (_trimmedStore) return new Set(_trimmedStore);
   if (!fs.existsSync(TRIMMED_TERMS_PATH)) return new Set();
   try { return new Set(JSON.parse(fs.readFileSync(TRIMMED_TERMS_PATH, "utf8"))); }
   catch { return new Set(); }
 }
 
 function saveTrimmedTerms(trimmedSet) {
-  fs.writeFileSync(TRIMMED_TERMS_PATH, JSON.stringify([...trimmedSet], null, 2));
+  _trimmedStore = [...trimmedSet];
+  fs.writeFileSync(TRIMMED_TERMS_PATH, JSON.stringify(_trimmedStore, null, 2));
 }
 
 function loadCandidateTerms() {
+  if (_candidateStore) return _candidateStore;
   if (!fs.existsSync(CANDIDATE_TERMS_PATH)) return [];
   try { return JSON.parse(fs.readFileSync(CANDIDATE_TERMS_PATH, "utf8")); }
   catch { return []; }
 }
 
 function saveCandidateTerms(candidates) {
+  _candidateStore = candidates;
   fs.writeFileSync(CANDIDATE_TERMS_PATH, JSON.stringify(candidates, null, 2));
+}
+
+function initFromGist(gist) {
+  if (!gist) return;
+  const gistBlockList  = getGistFile(gist, "blocklist.json");
+  const gistTrimmed    = getGistFile(gist, "trimmed_terms.json");
+  const gistCandidates = getGistFile(gist, "candidate_terms.json");
+  if (gistBlockList)  _blockListStore  = gistBlockList;
+  if (gistTrimmed)    _trimmedStore    = gistTrimmed;
+  if (gistCandidates) _candidateStore  = gistCandidates;
+  if (gistBlockList || gistTrimmed || gistCandidates) {
+    console.log("📥 Loaded data from Gist");
+  }
 }
 
 const TRIMMED_TERMS = loadTrimmedTerms();
@@ -183,7 +205,7 @@ const STATS_PATH       = "data/stats.json";
 if (!fs.existsSync("data")) fs.mkdirSync("data");
 
 // ── Stats ─────────────────────────────────────────────────
-function loadStats() {
+function loadStats(gist = null) {
   const defaults = {
     totalLikes: 0, totalFollows: 0, totalUnfollows: 0, totalReplies: 0,
     runs: 0, lastRun: null, lastLikedAt: {}, lastRepliedAt: {}, dailyActions: {},
@@ -201,6 +223,12 @@ function loadStats() {
     actionsHistory: [],          // recent run action counts for spike detection
     termFollowBackRate: {},      // follow-back rate per search term
   };
+  // Try Gist first
+  if (gist) {
+    const gistStats = getGistFile(gist, "stats.json");
+    if (gistStats) return { ...defaults, ...gistStats };
+  }
+  // Fallback to local file
   if (!fs.existsSync(STATS_PATH)) return defaults;
   try { return { ...defaults, ...JSON.parse(fs.readFileSync(STATS_PATH, "utf8")) }; }
   catch { return defaults; }
@@ -212,12 +240,51 @@ function saveStats(stats) {
 
 async function saveStatsToGist(stats) {
   if (!GIST_TOKEN || !GIST_ID) return;
+  // Full Gist sync handled by syncAllToGist — this is kept for spike detection early exit
+  await syncAllToGist(stats);
+}
+
+// ── Gist I/O ──────────────────────────────────────────────────
+let _gistCache = null;
+
+async function fetchGist() {
+  if (!GIST_TOKEN || !GIST_ID) return null;
   try {
+    const res = await request({
+      hostname: "api.github.com",
+      path: `/gists/${GIST_ID}`,
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${GIST_TOKEN}`,
+        "User-Agent": "dexteritycs-bot",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+    if (res.status !== 200) return null;
+    _gistCache = res.body;
+    return res.body;
+  } catch { return null; }
+}
+
+function getGistFile(gist, filename) {
+  if (!gist?.files?.[filename]?.content) return null;
+  try { return JSON.parse(gist.files[filename].content); }
+  catch { return null; }
+}
+
+async function syncAllToGist(stats) {
+  if (!GIST_TOKEN || !GIST_ID) return;
+  try {
+    const blockList  = _blockListStore  || [...loadBlockList()];
+    const trimmed    = _trimmedStore    || [...loadTrimmedTerms()];
+    const candidates = _candidateStore  || loadCandidateTerms();
+
     const body = JSON.stringify({
       files: {
-        "stats.json": {
-          content: JSON.stringify(stats, null, 2),
-        },
+        "stats.json":           { content: JSON.stringify(stats,       null, 2) },
+        "blocklist.json":       { content: JSON.stringify(blockList,   null, 2) },
+        "trimmed_terms.json":   { content: JSON.stringify(trimmed,     null, 2) },
+        "candidate_terms.json": { content: JSON.stringify(candidates,  null, 2) },
       },
     });
     const res = await request({
@@ -232,7 +299,7 @@ async function saveStatsToGist(stats) {
       },
     }, body);
     if (res.status === 200) {
-      console.log("📡 Stats synced to Gist");
+      console.log("📡 All data synced to Gist");
     } else {
       console.warn(`⚠️  Gist sync failed: ${res.status}`);
     }
@@ -1429,13 +1496,15 @@ function loadWhitelist() {
 }
 
 function loadBlockList() {
+  if (_blockListStore) return new Set(_blockListStore);
   if (!fs.existsSync(BLOCK_LIST_PATH)) return new Set();
   try { return new Set(JSON.parse(fs.readFileSync(BLOCK_LIST_PATH, "utf8"))); }
   catch { return new Set(); }
 }
 
 function saveBlockList(blockList) {
-  fs.writeFileSync(BLOCK_LIST_PATH, JSON.stringify([...blockList], null, 2));
+  _blockListStore = [...blockList];
+  fs.writeFileSync(BLOCK_LIST_PATH, JSON.stringify(_blockListStore, null, 2));
 }
 
 function autoBlock(did, reason, stats = null, handle = null, following = null, myDid = null, token = null) {
@@ -1575,13 +1644,17 @@ async function run() {
 
   await selfTest();
 
+  // Load all data from Gist on startup (falls back to local files if unavailable)
+  const gist = await fetchGist();
+  initFromGist(gist);
+
   // Pause mode check
   if (isPaused()) {
     console.log("⏸️  Bot is paused — skipping run. Toggle pause off in the dashboard to resume.");
     return;
   }
 
-  const stats = loadStats();
+  const stats = loadStats(gist);
   pruneLastLikedAt(stats);
   pruneLastRepliedAt(stats);
 
