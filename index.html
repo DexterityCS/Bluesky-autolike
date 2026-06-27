@@ -624,7 +624,7 @@
         <button class="btn-secondary" style="padding:8px 14px;" onclick="addToBlocklist()">+ Add</button>
       </div>
       <div id="blocklist-entries" style="font-size:11px;color:var(--muted);">Loading...</div>
-      <div style="font-size:10px;color:var(--muted);margin-top:8px;">Changes are saved to localStorage and pushed to blocklist.json on next run trigger.</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:8px;">Loaded live from Gist. Changes made here are display-only — to permanently block an account, the bot handles it automatically during runs.</div>
     </div>
   </div>
 
@@ -747,38 +747,16 @@
   const ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions`;
   const DISPATCH_URL = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/${WORKFLOW_FILE}/dispatches`;
 
-  // Read live stats from Gist (updated every bot run, no commit needed)
-  const GIST_ID    = "9e21611814d0c5b84c94a9bc15ed21fa";
-  const STATS_URL  = `https://api.github.com/gists/${GIST_ID}`;
-  const STATS_URL_FALLBACK = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/stats.json`;
+  const STATS_URL = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/stats.json`;
 
-  // Fetch live stats from Gist (updated every run), fallback to repo stats.json
+  // Fetch real stats from stats.json in the repo via GitHub API (no CDN cache)
   async function fetchStats() {
     try {
-      let data = null;
-
-      // Try Gist first — no auth needed for public gist raw content
-      try {
-        const gistRes = await fetch(STATS_URL);
-        if (gistRes.ok) {
-          const gistData = await gistRes.json();
-          const rawUrl = gistData.files?.["stats.json"]?.raw_url;
-          if (rawUrl) {
-            const rawRes = await fetch(rawUrl);
-            if (rawRes.ok) data = await rawRes.json();
-          }
-        }
-      } catch {}
-
-      // Fallback to repo stats.json if Gist failed
-      if (!data) {
-        const fallbackRes = await fetch(STATS_URL_FALLBACK, {
-          headers: { "Accept": "application/vnd.github.raw+json" }
-        });
-        if (!fallbackRes.ok) return;
-        data = await fallbackRes.json();
-      }
-
+      const res = await fetch(STATS_URL, {
+        headers: { "Accept": "application/vnd.github.raw+json" }
+      });
+      if (!res.ok) return;
+      const data = await res.json();
       document.getElementById("stat-likes").textContent = data.totalLikes ?? "0";
       document.getElementById("stat-follows").textContent = data.totalFollows ?? "0";
       document.getElementById("stat-unfollows").textContent = data.totalUnfollows ?? "0";
@@ -1038,20 +1016,9 @@
   // ── Export stats ──────────────────────────────────────────
   async function exportStats() {
     try {
-      let data = null;
-      try {
-        const gistRes = await fetch(STATS_URL);
-        if (gistRes.ok) {
-          const gistData = await gistRes.json();
-          const rawUrl = gistData.files?.["stats.json"]?.raw_url;
-          if (rawUrl) { const r = await fetch(rawUrl); if (r.ok) data = await r.json(); }
-        }
-      } catch {}
-      if (!data) {
-        const res = await fetch(STATS_URL_FALLBACK, { headers: { "Accept": "application/vnd.github.raw+json" } });
-        if (!res.ok) { log("❌ Could not fetch stats for export.", "error"); return; }
-        data = await res.json();
-      }
+      const res = await fetch(STATS_URL, { headers: { "Accept": "application/vnd.github.raw+json" } });
+      if (!res.ok) { log("❌ Could not fetch stats for export.", "error"); return; }
+      const data = await res.json();
       const csv = buildCSV(data);
       const blob = new Blob([csv], { type: "text/csv" });
       const url = URL.createObjectURL(blob);
@@ -1133,8 +1100,31 @@
     }
   }
 
-  // ── Blocklist manager ─────────────────────────────────────
-  let blocklistEntries = JSON.parse(localStorage.getItem("bsky_blocklist") || "[]");
+  // ── Blocklist manager — reads from Gist ──────────────────
+  let blocklistEntries = [];
+
+  async function loadBlocklistFromGist() {
+    const container = document.getElementById("blocklist-entries");
+    container.textContent = "Loading...";
+    try {
+      const gistRes = await fetch(STATS_URL);
+      if (gistRes.ok) {
+        const gistData = await gistRes.json();
+        const rawUrl = gistData.files?.["blocklist.json"]?.raw_url;
+        if (rawUrl) {
+          const r = await fetch(rawUrl);
+          if (r.ok) {
+            blocklistEntries = await r.json();
+            renderBlocklist();
+            return;
+          }
+        }
+      }
+    } catch {}
+    // Fallback — empty
+    blocklistEntries = [];
+    renderBlocklist();
+  }
 
   function renderBlocklist() {
     const container = document.getElementById("blocklist-entries");
@@ -1154,19 +1144,18 @@
     const val = input.value.trim();
     if (!val || blocklistEntries.includes(val)) return;
     blocklistEntries.push(val);
-    localStorage.setItem("bsky_blocklist", JSON.stringify(blocklistEntries));
     renderBlocklist();
     input.value = "";
-    log(`🚫 Added ${val} to block list.`, "warn");
+    log(`🚫 Added ${val} to block list. Will sync to Gist on next bot run.`, "warn");
   }
 
   function removeFromBlocklist(index) {
     blocklistEntries.splice(index, 1);
-    localStorage.setItem("bsky_blocklist", JSON.stringify(blocklistEntries));
     renderBlocklist();
+    log("Removed entry. Changes will sync to Gist on next bot run.", "warn");
   }
 
-  renderBlocklist();
+  loadBlocklistFromGist();
   let searchTerms = JSON.parse(localStorage.getItem("bsky_search_terms") || "null") || [...DEFAULT_TERMS];
 
   function renderTags() {
