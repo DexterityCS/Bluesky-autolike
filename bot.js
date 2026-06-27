@@ -36,7 +36,7 @@ const WEEKLY_SUMMARY_DAY   = 1; // 0=Sun, 1=Mon
 
 // Account protection
 const SPIKE_THRESHOLD      = 3;
-const BLOCK_LIST_PATH      = "blocklist.json";
+const BLOCK_LIST_PATH      = "data/blocklist.json";
 
 // Engagement scoring — weight for prioritizing posts
 const SCORE_LIKE_WEIGHT    = 1;
@@ -51,7 +51,7 @@ const MUTUAL_NETWORK_BOOST = true;
 const REPLY_PERSONAS = ["hype", "analytical", "friendly"];
 
 // Pause mode flag — checked at start of each run
-const PAUSE_PATH = "pause.json";
+const PAUSE_PATH = "data/pause.json";
 
 const DEFAULT_TERMS = [
   // CS2
@@ -121,12 +121,21 @@ const NSFW_EMOJI_LIST = [
   "🍒", "🌶️", "🔥🔥🔥", "💯🔥",
 ];
 
-const TRIMMED_TERMS_PATH    = "trimmed_terms.json";
-const CANDIDATE_TERMS_PATH  = "candidate_terms.json";
+const TRIMMED_TERMS_PATH    = "data/trimmed_terms.json";
+const CANDIDATE_TERMS_PATH  = "data/candidate_terms.json";
 
 // Term discovery config
 const MAX_CANDIDATE_DISCOVERY = 5;   // max new candidates to discover per run
 const MAX_ACTIVE_SEARCH_TERMS = 15;  // max total active search terms at once
+
+// Protected terms — never auto-trimmed regardless of performance
+const PROTECTED_TERMS = new Set([
+  "#CS2", "CS2", "counter-strike",
+  "#ApexLegends", "apex legends",
+  "#Overwatch",
+  "#Minecraft", "minecraft",
+  "#Terraria", "terraria",
+]);
 
 function loadTrimmedTerms() {
   if (!fs.existsSync(TRIMMED_TERMS_PATH)) return new Set();
@@ -168,7 +177,10 @@ if (ACTIVE_CANDIDATES.length > 0) {
 }
 
 const POSTS_PER_SEARCH = 100;
-const STATS_PATH       = "stats.json";
+const STATS_PATH       = "data/stats.json";
+
+// Ensure data directory exists
+if (!fs.existsSync("data")) fs.mkdirSync("data");
 
 // ── Stats ─────────────────────────────────────────────────
 function loadStats() {
@@ -946,6 +958,7 @@ async function autoTrimDeadTerms(stats) {
 
   for (const [term, data] of Object.entries(stats.termPerformance)) {
     if (data.runs < DEAD_TERM_MIN_RUNS) continue; // not enough data yet
+    if (PROTECTED_TERMS.has(term)) continue;       // never trim protected terms
 
     const avgEngagement = (data.likes + data.follows) / data.runs;
     if (avgEngagement < DEAD_TERM_MIN_AVG) {
@@ -1407,7 +1420,7 @@ function getReplyPersona(stats) {
 }
 
 
-const WHITELIST_PATH   = "whitelist.json";
+const WHITELIST_PATH   = "data/whitelist.json";
 
 function loadWhitelist() {
   if (!fs.existsSync(WHITELIST_PATH)) return new Set();
