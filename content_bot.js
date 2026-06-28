@@ -52,7 +52,9 @@ const INCREMENTAL_GAMES = [
   "All Hail the Orb", "Alchemist's Garden",
 ];
 
-// ── Content rotation weights ──────────────────────────────
+// Only celebrate completions unlocked after this date (when bot was set up)
+// Prevents posting about games completed before the content bot existed
+const COMPLETION_CUTOFF = new Date("2026-06-28T00:00:00.000Z");
 // Steam completion check always runs first and overrides if found
 const CONTENT_TYPES = ["cs2", "cs2", "cs2", "ow2", "ow2", "incremental", "incremental"];
 
@@ -315,8 +317,33 @@ async function checkSteamCompletions(contentStats) {
         const total    = achievements.length;
         const unlocked = achievements.filter(a => a.achieved === 1).length;
 
-        if (unlocked === total) {
-          console.log(`🏆 New 100%! ${game.name} (${total} achievements)`);
+        if (unlocked === total && unlocked > 0) {
+          // Check when the last achievement was unlocked
+          const lastUnlockTime = Math.max(...achievements
+            .filter(a => a.achieved === 1 && a.unlocktime)
+            .map(a => a.unlocktime * 1000));
+          const lastUnlockDate = new Date(lastUnlockTime);
+
+          if (lastUnlockDate < COMPLETION_CUTOFF) {
+            console.log(`   ⏭️  Skipped ${game.name} — completed before cutoff (${lastUnlockDate.toLocaleDateString()})`);
+            contentStats.celebratedGames.push(String(game.appid));
+            continue;
+          }
+
+          // Only celebrate if it's a known incremental game
+          const nameClean = game.name.toLowerCase().replace(/[^a-z0-9\s]/g, "");
+          const isIncremental = INCREMENTAL_GAMES.some(ig => {
+            const igClean = ig.toLowerCase().replace(/[^a-z0-9\s]/g, "");
+            return nameClean.includes(igClean) || igClean.includes(nameClean);
+          });
+
+          if (!isIncremental) {
+            console.log(`   ⏭️  Skipped ${game.name} — not in incremental games list`);
+            contentStats.celebratedGames.push(String(game.appid));
+            continue;
+          }
+
+          console.log(`🏆 New 100%! ${game.name} (${total} achievements, completed ${lastUnlockDate.toLocaleDateString()})`);
           return {
             appid: String(game.appid),
             name: game.name,
