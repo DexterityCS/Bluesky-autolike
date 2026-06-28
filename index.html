@@ -433,6 +433,38 @@
       100% { left: 100%; width: 30%; }
     }
 
+    /* pagination */
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 20px;
+      border-top: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .pagination button {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 4px 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .pagination button:hover:not(:disabled) {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .pagination button:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
     /* footer */
     footer {
       margin-top: 40px;
@@ -624,6 +656,11 @@
         <button class="btn-secondary" style="padding:8px 14px;" onclick="addToBlocklist()">+ Add</button>
       </div>
       <div id="blocklist-entries" style="font-size:11px;color:var(--muted);">Loading...</div>
+      <div class="pagination" id="blocklist-pagination" style="display:none;">
+        <button onclick="blocklistPage(-1)" id="blocklist-prev">◀ Prev</button>
+        <span id="blocklist-page-info"></span>
+        <button onclick="blocklistPage(1)" id="blocklist-next">Next ▶</button>
+      </div>
       <div style="font-size:10px;color:var(--muted);margin-top:8px;">Loaded live from Gist. Changes made here are display-only — to permanently block an account, the bot handles it automatically during runs.</div>
     </div>
   </div>
@@ -700,6 +737,11 @@
           <span>Timestamp</span><span>Likes</span><span>Follows</span><span>Unfollows</span><span>Replies</span><span>Net ±</span>
         </div>
         <div id="run-history-rows" style="color:var(--muted);padding:14px 20px;font-size:11px;">Loading...</div>
+        <div class="pagination" id="runhistory-pagination" style="display:none;">
+          <button onclick="runHistoryPage(-1)" id="runhistory-prev">◀ Prev</button>
+          <span id="runhistory-page-info"></span>
+          <button onclick="runHistoryPage(1)" id="runhistory-next">Next ▶</button>
+        </div>
       </div>
     </div>
   </div>
@@ -727,6 +769,11 @@
         <span>Term</span><span>Likes</span><span>Follows</span><span>Runs</span>
       </div>
       <div id="term-performance-rows" style="color:var(--muted);padding:14px 20px;font-size:11px;">Loading...</div>
+      <div class="pagination" id="termperf-pagination" style="display:none;">
+        <button onclick="termPerfPage(-1)" id="termperf-prev">◀ Prev</button>
+        <span id="termperf-page-info"></span>
+        <button onclick="termPerfPage(1)" id="termperf-next">Next ▶</button>
+      </div>
     </div>
   </div>
 
@@ -741,6 +788,11 @@
         <span>Term</span><span>Source</span><span>Status</span><span>Discovered</span>
       </div>
       <div id="candidate-rows" style="color:var(--muted);padding:14px 20px;font-size:11px;">Loading...</div>
+      <div class="pagination" id="candidate-pagination" style="display:none;">
+        <button onclick="candidatePage(-1)" id="candidate-prev">◀ Prev</button>
+        <span id="candidate-page-info"></span>
+        <button onclick="candidatePage(1)" id="candidate-next">Next ▶</button>
+      </div>
     </div>
   </div>
 
@@ -752,6 +804,11 @@
     </div>
     <div class="panel-body" style="padding:0;">
       <div id="graduated-rows" style="color:var(--muted);padding:14px 20px;font-size:11px;">Loading...</div>
+      <div class="pagination" id="graduated-pagination" style="display:none;">
+        <button onclick="graduatedPage(-1)" id="graduated-prev">◀ Prev</button>
+        <span id="graduated-page-info"></span>
+        <button onclick="graduatedPage(1)" id="graduated-next">Next ▶</button>
+      </div>
     </div>
   </div>
 
@@ -763,6 +820,11 @@
     </div>
     <div class="panel-body" style="padding:0;">
       <div id="trimmed-rows" style="color:var(--muted);padding:14px 20px;font-size:11px;">Loading...</div>
+      <div class="pagination" id="trimmed-pagination" style="display:none;">
+        <button onclick="trimmedPage(-1)" id="trimmed-prev">◀ Prev</button>
+        <span id="trimmed-page-info"></span>
+        <button onclick="trimmedPage(1)" id="trimmed-next">Next ▶</button>
+      </div>
     </div>
   </div>
 
@@ -839,20 +901,24 @@
       if (runs.length === 0) {
         runRows.textContent = "No runs recorded yet.";
       } else {
-        runRows.innerHTML = runs.map(r => {
-          const d = new Date(r.timestamp);
-          const timeStr = d.toLocaleDateString([], {month:"short", day:"numeric"}) + " " + d.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
-          const net = r.netFollowers >= 0 ? `+${r.netFollowers}` : `${r.netFollowers}`;
-          const netColor = r.netFollowers > 0 ? "var(--green)" : r.netFollowers < 0 ? "var(--accent2)" : "var(--muted)";
-          return `<div style="display:grid;grid-template-columns:1.8fr repeat(5,1fr);padding:9px 20px;border-bottom:1px solid var(--border);">
-            <span style="color:var(--text);">${timeStr}</span>
-            <span style="color:var(--accent);">${r.likes ?? 0}</span>
-            <span style="color:var(--accent2);">${r.follows ?? 0}</span>
-            <span style="color:var(--muted);">${r.unfollows ?? 0}</span>
-            <span style="color:var(--text);">${r.replies ?? 0}</span>
-            <span style="color:${netColor};">${net}</span>
-          </div>`;
-        }).join("");
+        const renderRunPage = (page) => {
+          runRows.innerHTML = page.map(r => {
+            const d = new Date(r.timestamp);
+            const timeStr = d.toLocaleDateString([], {month:"short", day:"numeric"}) + " " + d.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+            const net = r.netFollowers >= 0 ? `+${r.netFollowers}` : `${r.netFollowers}`;
+            const netColor = r.netFollowers > 0 ? "var(--green)" : r.netFollowers < 0 ? "var(--accent2)" : "var(--muted)";
+            return `<div style="display:grid;grid-template-columns:1.8fr repeat(5,1fr);padding:9px 20px;border-bottom:1px solid var(--border);">
+              <span style="color:var(--text);">${timeStr}</span>
+              <span style="color:var(--accent);">${r.likes ?? 0}</span>
+              <span style="color:var(--accent2);">${r.follows ?? 0}</span>
+              <span style="color:var(--muted);">${r.unfollows ?? 0}</span>
+              <span style="color:var(--text);">${r.replies ?? 0}</span>
+              <span style="color:${netColor};">${net}</span>
+            </div>`;
+          }).join("");
+        };
+        const runPager = makePaginator(runs, renderRunPage, "run-history-rows", "runhistory-pagination", "runhistory-page-info", "runhistory-prev", "runhistory-next");
+        window.runHistoryPage = (dir) => dir < 0 ? runPager.prev() : runPager.next();
       }
 
       // Follower growth chart
@@ -938,13 +1004,17 @@
       if (sorted.length === 0) {
         termRows.textContent = "No data yet.";
       } else {
-        termRows.innerHTML = sorted.map(([term, d], i) => `
-          <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;padding:9px 20px;border-bottom:1px solid var(--border);${i === sorted.length-1 ? "border-bottom:none;" : ""}">
-            <span style="color:var(--accent);">${term}</span>
-            <span style="color:var(--text);">${d.likes}</span>
-            <span style="color:var(--text);">${d.follows}</span>
-            <span style="color:var(--muted);">${d.runs}</span>
-          </div>`).join("");
+        const renderTermPage = (page) => {
+          termRows.innerHTML = page.map(([term, d]) => `
+            <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;padding:9px 20px;border-bottom:1px solid var(--border);">
+              <span style="color:var(--accent);">${term}</span>
+              <span style="color:var(--text);">${d.likes}</span>
+              <span style="color:var(--text);">${d.follows}</span>
+              <span style="color:var(--muted);">${d.runs}</span>
+            </div>`).join("");
+        };
+        const termPager = makePaginator(sorted, renderTermPage, "term-performance-rows", "termperf-pagination", "termperf-page-info", "termperf-prev", "termperf-next");
+        window.termPerfPage = (dir) => dir < 0 ? termPager.prev() : termPager.next();
       }
     } catch (e) {
       console.warn("Could not fetch stats.json:", e.message);
@@ -952,6 +1022,38 @@
   }
 
   fetchStats();
+
+  // ── Shared pagination helper ──────────────────────────────
+  const PAGE_SIZE = 10;
+
+  function makePaginator(allItems, renderFn, rowsId, paginationId, pageInfoId, prevId, nextId) {
+    let currentPage = 0;
+    const totalPages = () => Math.ceil(allItems.length / PAGE_SIZE);
+
+    function render() {
+      const start = currentPage * PAGE_SIZE;
+      const page  = allItems.slice(start, start + PAGE_SIZE);
+      renderFn(page, start);
+
+      const pg = document.getElementById(paginationId);
+      const pi = document.getElementById(pageInfoId);
+      const pv = document.getElementById(prevId);
+      const nx = document.getElementById(nextId);
+
+      if (allItems.length > PAGE_SIZE) {
+        pg.style.display = "flex";
+        pi.textContent = `${start + 1}–${Math.min(start + PAGE_SIZE, allItems.length)} of ${allItems.length}`;
+        pv.disabled = currentPage === 0;
+        nx.disabled = currentPage >= totalPages() - 1;
+      } else {
+        pg.style.display = "none";
+      }
+    }
+
+    render();
+    return { prev: () => { if (currentPage > 0) { currentPage--; render(); } },
+             next: () => { if (currentPage < totalPages() - 1) { currentPage++; render(); } } };
+  }
 
   function log(msg, type = "") {
     const area = document.getElementById("log");
@@ -1156,6 +1258,7 @@
 
   // ── Blocklist manager — reads from Gist ──────────────────
   let blocklistEntries = [];
+  let _blocklistPager = null;
 
   async function loadBlocklistFromGist() {
     const container = document.getElementById("blocklist-entries");
@@ -1166,17 +1269,24 @@
   }
 
   function renderBlocklist() {
-    const container = document.getElementById("blocklist-entries");
+    const renderPage = (page) => {
+      const container = document.getElementById("blocklist-entries");
+      if (blocklistEntries.length === 0) { container.textContent = "No blocked accounts."; return; }
+      container.innerHTML = page.map((entry, i) => `
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);">
+          <span style="color:var(--text);font-size:11px;">${entry}</span>
+          <button onclick="removeFromBlocklist(${blocklistEntries.indexOf(entry)})" style="background:none;border:1px solid var(--border);color:var(--accent2);font-size:10px;padding:3px 8px;cursor:pointer;">Remove</button>
+        </div>`).join("");
+    };
     if (blocklistEntries.length === 0) {
-      container.textContent = "No blocked accounts.";
+      document.getElementById("blocklist-entries").textContent = "No blocked accounts.";
+      document.getElementById("blocklist-pagination").style.display = "none";
       return;
     }
-    container.innerHTML = blocklistEntries.map((entry, i) => `
-      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);">
-        <span style="color:var(--text);font-size:11px;">${entry}</span>
-        <button onclick="removeFromBlocklist(${i})" style="background:none;border:1px solid var(--border);color:var(--accent2);font-size:10px;padding:3px 8px;cursor:pointer;">Remove</button>
-      </div>`).join("");
+    _blocklistPager = makePaginator(blocklistEntries, renderPage, "blocklist-entries", "blocklist-pagination", "blocklist-page-info", "blocklist-prev", "blocklist-next");
   }
+
+  window.blocklistPage = (dir) => { if (_blocklistPager) dir < 0 ? _blocklistPager.prev() : _blocklistPager.next(); };
 
   function addToBlocklist() {
     const input = document.getElementById("blocklist-input");
@@ -1204,15 +1314,19 @@
     if (!data || data.length === 0) { rows.textContent = "No candidates discovered yet."; return; }
     const statusColor = { queued: "var(--muted)", active: "var(--accent)", graduated: "var(--yellow)" };
     const statusLabel = { queued: "⏳ Queued", active: "🧪 Testing", graduated: "🎓 Graduated" };
-    rows.innerHTML = data.map((c, i) => {
-      const date = c.discoveredAt ? new Date(c.discoveredAt).toLocaleDateString([], { month: "short", day: "numeric" }) : "—";
-      return `<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;padding:9px 20px;border-bottom:1px solid var(--border);${i === data.length-1 ? "border-bottom:none;" : ""}">
-        <span style="color:var(--accent);">${c.term}</span>
-        <span style="color:var(--muted);">${c.sourceGame || "—"}</span>
-        <span style="color:${statusColor[c.status] || "var(--muted)"};">${statusLabel[c.status] || c.status}</span>
-        <span style="color:var(--muted);">${date}</span>
-      </div>`;
-    }).join("");
+    const renderPage = (page) => {
+      rows.innerHTML = page.map(c => {
+        const date = c.discoveredAt ? new Date(c.discoveredAt).toLocaleDateString([], { month: "short", day: "numeric" }) : "—";
+        return `<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;padding:9px 20px;border-bottom:1px solid var(--border);">
+          <span style="color:var(--accent);">${c.term}</span>
+          <span style="color:var(--muted);">${c.sourceGame || "—"}</span>
+          <span style="color:${statusColor[c.status] || "var(--muted)"};">${statusLabel[c.status] || c.status}</span>
+          <span style="color:var(--muted);">${date}</span>
+        </div>`;
+      }).join("");
+    };
+    const pager = makePaginator(data, renderPage, "candidate-rows", "candidate-pagination", "candidate-page-info", "candidate-prev", "candidate-next");
+    window.candidatePage = (dir) => dir < 0 ? pager.prev() : pager.next();
   }
 
   loadCandidateTerms();
@@ -1226,10 +1340,14 @@
       rows.innerHTML = `<div style="padding:14px 20px;font-size:11px;color:var(--muted);">No graduated terms yet — terms need 15 runs averaging 1.0+ engagements/run.</div>`;
       return;
     }
-    rows.innerHTML = data.map((term, i) => `
-      <div style="padding:9px 20px;border-bottom:1px solid var(--border);${i === data.length-1 ? "border-bottom:none;" : ""}">
-        <span style="color:var(--yellow);">★ ${term}</span>
-      </div>`).join("");
+    const renderPage = (page) => {
+      rows.innerHTML = page.map(term => `
+        <div style="padding:9px 20px;border-bottom:1px solid var(--border);">
+          <span style="color:var(--yellow);">★ ${term}</span>
+        </div>`).join("");
+    };
+    const pager = makePaginator(data, renderPage, "graduated-rows", "graduated-pagination", "graduated-page-info", "graduated-prev", "graduated-next");
+    window.graduatedPage = (dir) => dir < 0 ? pager.prev() : pager.next();
   }
 
   loadGraduatedTerms();
@@ -1243,10 +1361,14 @@
       rows.innerHTML = `<div style="padding:14px 20px;font-size:11px;color:var(--muted);">No trimmed terms yet.</div>`;
       return;
     }
-    rows.innerHTML = data.map((term, i) => `
-      <div style="padding:9px 20px;border-bottom:1px solid var(--border);${i === data.length-1 ? "border-bottom:none;" : ""}">
-        <span style="color:var(--accent2);">✂ ${term}</span>
-      </div>`).join("");
+    const renderPage = (page) => {
+      rows.innerHTML = page.map(term => `
+        <div style="padding:9px 20px;border-bottom:1px solid var(--border);">
+          <span style="color:var(--accent2);">✂ ${term}</span>
+        </div>`).join("");
+    };
+    const pager = makePaginator(data, renderPage, "trimmed-rows", "trimmed-pagination", "trimmed-page-info", "trimmed-prev", "trimmed-next");
+    window.trimmedPage = (dir) => dir < 0 ? pager.prev() : pager.next();
   }
 
   loadTrimmedTerms();
