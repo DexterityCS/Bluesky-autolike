@@ -532,6 +532,18 @@
 
   <!-- Stats -->
 
+  <!-- Milestone Tracker -->
+  <div id="milestone-tracker" style="margin-bottom:20px;background:var(--surface);border:1px solid var(--border);padding:16px 20px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+      <span style="font-size:10px;letter-spacing:3px;color:var(--muted);text-transform:uppercase;">// Follower Milestones</span>
+      <span id="milestone-label" style="font-size:11px;color:var(--accent);">Loading...</span>
+    </div>
+    <div style="position:relative;height:6px;background:var(--border);margin-bottom:10px;">
+      <div id="milestone-bar" style="position:absolute;top:0;left:0;height:100%;background:var(--accent);width:0%;transition:width 0.6s ease;"></div>
+    </div>
+    <div id="milestone-markers" style="display:flex;justify-content:space-between;"></div>
+  </div>
+
   <!-- Stats — always visible above tabs -->
   <div class="section-label">// Session Stats</div>
   <div class="stats-row" style="grid-template-columns: repeat(6, 1fr); margin-bottom: 24px;">
@@ -968,6 +980,9 @@
         document.getElementById("stat-lastrun-sub").textContent = d.toLocaleDateString();
       }
 
+      // Milestone tracker
+      renderMilestoneTracker(data.followerHistory || []);
+
       // Run history table
       const runs = data.runHistory || [];
       const runRows = document.getElementById("run-history-rows");
@@ -1023,6 +1038,38 @@
   }
 
   fetchStats();
+
+  // ── Milestone tracker ─────────────────────────────────────
+  const MILESTONES = [100, 250, 500, 1000, 2500, 5000, 10000];
+
+  function renderMilestoneTracker(followerHistory) {
+    const current = followerHistory.length > 0
+      ? followerHistory[followerHistory.length - 1].count
+      : 0;
+
+    const nextMilestone = MILESTONES.find(m => m > current) || MILESTONES[MILESTONES.length - 1];
+    const prevMilestone = MILESTONES.slice().reverse().find(m => m <= current) || 0;
+    const pct = nextMilestone > prevMilestone
+      ? Math.min(100, ((current - prevMilestone) / (nextMilestone - prevMilestone)) * 100)
+      : 100;
+
+    document.getElementById("milestone-bar").style.width = `${pct.toFixed(1)}%`;
+    document.getElementById("milestone-label").textContent =
+      current >= MILESTONES[MILESTONES.length - 1]
+        ? `🎉 All milestones reached! ${current.toLocaleString()} followers`
+        : `${current.toLocaleString()} / ${nextMilestone.toLocaleString()} followers — ${pct.toFixed(1)}% to next milestone`;
+
+    // Milestone markers
+    const markers = document.getElementById("milestone-markers");
+    markers.innerHTML = MILESTONES.map(m => {
+      const reached = current >= m;
+      const isNext  = m === nextMilestone;
+      return `<div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
+        <div style="width:8px;height:8px;border-radius:50%;background:${reached ? "var(--green)" : isNext ? "var(--accent)" : "var(--border)"};${isNext ? "box-shadow:0 0 6px var(--accent);" : ""}"></div>
+        <span style="font-size:9px;color:${reached ? "var(--green)" : isNext ? "var(--accent)" : "var(--muted)"};letter-spacing:1px;">${m >= 1000 ? m/1000 + "K" : m}</span>
+      </div>`;
+    }).join("");
+  }
 
   // ── Tab switching ─────────────────────────────────────────
   let _cachedChartHistory = null;
