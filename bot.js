@@ -45,50 +45,10 @@ const DEFAULT_TERMS = [
   "#Terraria", "terraria",
 ];
 
-// ── Filter fallbacks — used if filters.json not yet in Gist ──
-// These will be superseded by filters.json loaded from Gist at runtime
-const NSFW_TAGS = [
-  "nsfw", "18+", "onlyfans", "lewd", "hentai", "nude", "naked", "porn",
-  "xxx", "erotic", "fetish", "adult content", "explicit content", "kink",
-  "bdsm", "nudes", "slutty", "sexy pics", "hot pics", "fansly", "manyvids",
-  "admireme", "patreon nsfw", "spicy content", "thirst trap", "thirsty",
-  "cam girl", "camgirl", "camboy", "sex work", "sexwork", "sw friendly",
-  "horny", "slutty", "booty", "ass pics", "topless", "lingerie model",
-  "only fans", "of link", "of account", "subscribe to my", "mdni", "dni",
-  "bratty", "submissive", "dominant", "domme", "femdom", "findom",
-  "daddy dom", "mommy dom", "owned by", "collared", "pet play",
-  "little space", "age play", "ddlg", "mdlg",
-  "furry", "fursona", "fursuit", "yiff",
-  "egirl", "e-girl", "bunny girl",
-  "brat ",
-];
-
-const POLITICAL_TAGS = [
-  "democrat", "republican", "maga", "biden", "trump", "harris", "obama",
-  "desantis", "aoc", "bernie", "pelosi", "mcconnell", "election", "ballot",
-  "vote", "voted", "voting", "voter", "congress", "senate", "senate", "gop",
-  "liberal", "conservative", "leftist", "right wing", "far right", "far left",
-  "socialist", "fascist", "communist", "antifa", "blm", "black lives matter",
-  "abortion", "prolife", "prochoice", "pro-life", "pro-choice", "roe v wade",
-  "gun control", "gun rights", "2nd amendment", "nra", "ar-15",
-  "immigration", "deportation", "border wall", "illegal alien",
-  "white supremac", "white nationalist", "kkk", "neo nazi",
-  "lgbtq", "transgender", "trans rights", "pride parade", "pride month", "pride",
-  "gay rights", "homophob", "transphob",
-  "nonbinary", "non-binary", "enby", "they/them", "she/her", "he/him",
-  "genderfluid", "gender fluid", "agender", "two spirit",
-  "queer", "sapphic", "achillean", "aroace", "asexual", "bisexual",
-  "political", "politics", "propaganda", "protest", "activist", "activism",
-  "rally", "inauguration", "presidency", "whitehouse", "white house", "capitol",
-  "supreme court", "constitution", "amendment", "bill of rights",
-  "deep state", "mainstream media", "msm", "fake news", "cancel culture",
-  "woke", "anti-woke", "crt", "critical race theory",
-];
-
-const NSFW_EMOJI_LIST = [
-  "🔞", "💦", "🍆", "🍑", "👅", "💋", "🥵", "😈", "🤤",
-  "🍒", "🌶️", "🔥🔥🔥", "💯🔥",
-];
+// ── Filter fallbacks — minimal safety net if Gist unavailable ──
+const NSFW_TAGS     = ["nsfw", "18+", "onlyfans", "porn", "xxx", "lewd", "hentai"];
+const POLITICAL_TAGS = ["maga", "trump", "biden", "election", "lgbtq", "transgender"];
+const NSFW_EMOJI_LIST = ["🔞", "💦", "🍆", "🍑", "👅", "💋"];
 
 const TRIMMED_TERMS_PATH    = "data/trimmed_terms.json";
 const CANDIDATE_TERMS_PATH  = "data/candidate_terms.json";
@@ -1966,6 +1926,13 @@ async function run() {
 
   const gist = await fetchGist();
   initFromGist(gist);
+
+  if (!getFilters()) {
+    console.warn("⚠️  filters.json not found in Gist — using hardcoded fallbacks. Add filters.json to your Gist to enable smart filtering.");
+  } else {
+    const f = getFilters();
+    console.log(`🔒 Smart filters active — ${f.nsfw_stems?.length || 0} NSFW stems, ${f.political_stems?.length || 0} political stems, ${f.nsfw_emoji?.length || 0} emoji`);
+  }
 
   if (isPaused()) {
     console.log("⏸️  Bot is paused — skipping run. Toggle pause off in the dashboard to resume.");
