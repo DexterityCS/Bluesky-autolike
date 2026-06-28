@@ -45,6 +45,8 @@ const DEFAULT_TERMS = [
   "#Terraria", "terraria",
 ];
 
+// ── Filter fallbacks — used if filters.json not yet in Gist ──
+// These will be superseded by filters.json loaded from Gist at runtime
 const NSFW_TAGS = [
   "nsfw", "18+", "onlyfans", "lewd", "hentai", "nude", "naked", "porn",
   "xxx", "erotic", "fetish", "adult content", "explicit content", "kink",
@@ -109,6 +111,7 @@ let _blockListStore    = null;
 let _trimmedStore      = null;
 let _candidateStore    = null;
 let _graduatedStore    = null;
+let _filtersStore      = null;
 
 function loadTrimmedTerms() {
   if (_trimmedStore) return new Set(_trimmedStore);
@@ -152,12 +155,17 @@ function initFromGist(gist) {
   const gistTrimmed    = getGistFile(gist, "trimmed_terms.json");
   const gistCandidates = getGistFile(gist, "candidate_terms.json");
   const gistGraduated  = getGistFile(gist, "graduated_terms.json");
+  const gistFilters    = getGistFile(gist, "filters.json");
   if (gistBlockList)  _blockListStore  = gistBlockList;
   if (gistTrimmed)    _trimmedStore    = gistTrimmed;
   if (gistCandidates) _candidateStore  = gistCandidates;
   if (gistGraduated)  _graduatedStore  = gistGraduated;
-  if (gistBlockList || gistTrimmed || gistCandidates || gistGraduated) {
+  if (gistFilters)    _filtersStore    = gistFilters;
+  if (gistBlockList || gistTrimmed || gistCandidates || gistGraduated || gistFilters) {
     console.log("📥 Loaded data from Gist");
+  }
+  if (gistFilters) {
+    console.log("🔒 Filters loaded from Gist");
   }
 }
 
@@ -265,15 +273,20 @@ async function syncAllToGist(stats) {
     const candidates = _candidateStore  || loadCandidateTerms();
     const graduated  = _graduatedStore  || [...loadGraduatedTerms()];
 
-    const body = JSON.stringify({
-      files: {
-        "stats.json":           { content: JSON.stringify(stats,       null, 2) },
-        "blocklist.json":       { content: JSON.stringify(blockList,   null, 2) },
-        "trimmed_terms.json":   { content: JSON.stringify(trimmed,     null, 2) },
-        "candidate_terms.json": { content: JSON.stringify(candidates,  null, 2) },
-        "graduated_terms.json": { content: JSON.stringify(graduated,   null, 2) },
-      },
-    });
+    const files = {
+      "stats.json":           { content: JSON.stringify(stats,       null, 2) },
+      "blocklist.json":       { content: JSON.stringify(blockList,   null, 2) },
+      "trimmed_terms.json":   { content: JSON.stringify(trimmed,     null, 2) },
+      "candidate_terms.json": { content: JSON.stringify(candidates,  null, 2) },
+      "graduated_terms.json": { content: JSON.stringify(graduated,   null, 2) },
+    };
+
+    // Only sync filters back if we loaded them — don't overwrite with null
+    if (_filtersStore) {
+      files["filters.json"] = { content: JSON.stringify(_filtersStore, null, 2) };
+    }
+
+    const body = JSON.stringify({ files });
     const res = await request({
       hostname: "api.github.com",
       path: `/gists/${GIST_ID}`,
@@ -424,15 +437,59 @@ async function getLatestPost(actorDid, token) {
   return res.body.feed[0].post;
 }
 
-// ── Content filter helpers ────────────────────────────────
+// ── Filter accessors — loaded from Gist, fall back to hardcoded ──
+function getFilters() {
+  return _filtersStore || null;
+}
+
+function getNsfwTags()      { return getFilters()?.nsfw_exact      || NSFW_TAGS; }
+function getPoliticalTags() { return getFilters()?.political_exact || POLITICAL_TAGS; }
+function getNsfwEmoji()     { return getFilters()?.nsfw_emoji      || NSFW_EMOJI_LIST; }
+function getBlockedLabels() { return getFilters()?.blocked_labels  || ["porn","sexual","nudity","graphic-media","adult-only","nsfw"]; }
+
+// ── Leet speak normalizer ─────────────────────────────────
+function normalizeLeet(text) {
+  const map = getFilters()?.leet_map || {
+    "0":"o","1":"i","3":"e","4":"a","5":"s","6":"g","7":"t","8":"b","@":"a","$":"s","!":"i","+":"t"
+  };
+  return text.split("").map(c => map[c] || c).join("");
+}
+
+// ── Smart filter check — stems + exact + leet ─────────────
 function containsFilteredTag(text, tagList) {
-  const lower = text.toLowerCase();
-  return tagList.some(tag => lower.includes(tag));
+  const lower      = text.toLowerCase();
+  const normalized = normalizeLeet(lower);
+  return tagList.some(tag => lower.includes(tag) || normalized.includes(tag));
+}
+
+function containsStem(text, stems) {
+  const lower      = text.toLowerCase();
+  const normalized = normalizeLeet(lower);
+  return stems.some(stem => lower.includes(stem) || normalized.includes(stem));
 }
 
 function findFilteredTag(text, tagList) {
-  const lower = text.toLowerCase();
-  return tagList.find(tag => lower.includes(tag)) || null;
+  const lower      = text.toLowerCase();
+  const normalized = normalizeLeet(lower);
+  return tagList.find(tag => lower.includes(tag) || normalized.includes(tag)) || null;
+}
+
+function isFilteredContent(text) {
+  const filters = getFilters();
+  if (!filters) {
+    // Fall back to old behavior
+    return containsFilteredTag(text, NSFW_TAGS) || containsFilteredTag(text, POLITICAL_TAGS);
+  }
+  return (
+    containsStem(text, filters.nsfw_stems || []) ||
+    containsFilteredTag(text, filters.nsfw_exact || []) ||
+    containsStem(text, filters.political_stems || []) ||
+    containsFilteredTag(text, filters.political_exact || [])
+  );
+}
+
+function isFilteredProfile(profileText) {
+  return isFilteredContent(profileText);
 }
 
 function recordFilterHit(stats, handle, reason, keyword = null) {
@@ -538,29 +595,27 @@ async function passesQualityFilters(authorDid, post, token, stats) {
   const profileFull = [bio, displayName, handle].join(" ");
 
   const profileLabels = profile.labels || [];
-  if (profileLabels.some(l => ["porn", "sexual", "nudity", "graphic-media", "adult-only", "nsfw"].includes(l.val))) {
+  if (profileLabels.some(l => getBlockedLabels().includes(l.val))) {
     stats.filteredCount = (stats.filteredCount || 0) + 1;
-    autoBlock(authorDid, "NSFW account label");
-    return { pass: false, reason: `NSFW account label` };
+    autoBlock(authorDid, "blocked account label");
+    return { pass: false, reason: `blocked account label` };
   }
 
-  if (containsFilteredTag(profileFull, NSFW_TAGS)) {
+  if (isFilteredProfile(profileFull)) {
+    const filters = getFilters();
+    const hitNsfw = filters
+      ? (containsStem(profileFull, filters.nsfw_stems || []) || containsFilteredTag(profileFull, filters.nsfw_exact || []))
+      : containsFilteredTag(profileFull, NSFW_TAGS);
     stats.filteredCount = (stats.filteredCount || 0) + 1;
-    autoBlock(authorDid, `NSFW keyword in profile: ${NSFW_TAGS.find(t => profileFull.includes(t))}`);
-    return { pass: false, reason: `NSFW profile bio/name` };
+    autoBlock(authorDid, hitNsfw ? "NSFW content in profile" : "political content in profile");
+    return { pass: false, reason: hitNsfw ? "NSFW profile bio/name" : "political profile bio/name" };
   }
 
   const rawBio = profile.description || "";
-  if (NSFW_EMOJI_LIST.some(e => rawBio.includes(e))) {
+  if (getNsfwEmoji().some(e => rawBio.includes(e))) {
     stats.filteredCount = (stats.filteredCount || 0) + 1;
     autoBlock(authorDid, "NSFW emoji in profile");
     return { pass: false, reason: `NSFW emoji in profile` };
-  }
-
-  if (containsFilteredTag(profileFull, POLITICAL_TAGS)) {
-    stats.filteredCount = (stats.filteredCount || 0) + 1;
-    autoBlock(authorDid, `political keyword in profile: ${POLITICAL_TAGS.find(t => profileFull.includes(t))}`);
-    return { pass: false, reason: `political profile bio/name` };
   }
 
   if (bio.length > 10 && ANTHROPIC_API_KEY) {
@@ -1489,11 +1544,9 @@ function isNSFW(post) {
   const labels = post.labels || [];
   const tags   = post.record?.tags || [];
 
-  if (labels.some(l => ["porn", "sexual", "nudity", "graphic-media"].includes(l.val))) return true;
-  if (containsFilteredTag(text, NSFW_TAGS)) return true;
-  if (tags.some(t => NSFW_TAGS.includes(t.toLowerCase()))) return true;
-  if (containsFilteredTag(text, POLITICAL_TAGS)) return true;
-  if (tags.some(t => POLITICAL_TAGS.includes(t.toLowerCase()))) return true;
+  if (labels.some(l => getBlockedLabels().includes(l.val))) return true;
+  if (isFilteredContent(text)) return true;
+  if (tags.some(t => isFilteredContent(t))) return true;
 
   return false;
 }
