@@ -7,66 +7,45 @@ const BLUESKY_HANDLE     = process.env.BLUESKY_HANDLE;
 const BLUESKY_PASSWORD   = process.env.BLUESKY_PASSWORD;
 const ANTHROPIC_API_KEY  = process.env.ANTHROPIC_API_KEY;
 const ACTIONS_PER_RUN    = parseInt(process.env.ACTIONS_PER_RUN || "25");
-const INACTIVE_DAYS      = 60;   // unfollow if inactive this long (still used as secondary check)
-const FOLLOW_BACK_DAYS   = 7;    // unfollow if not followed back within this many days
+const INACTIVE_DAYS      = 60;
+const FOLLOW_BACK_DAYS   = 7;
 
-// Engagement quality filters
 const MIN_FOLLOWERS      = 25;
 const MIN_ACCOUNT_DAYS   = 30;
 const MAX_POST_AGE_DAYS  = 7;
-const MAX_FOLLOW_RATIO   = 10; // following/followers ratio — skip if above this (spam signal)
+const MAX_FOLLOW_RATIO   = 10;
 
-// Daily/hourly caps
 const DAILY_ACTION_CAP   = 200;
 const HOURLY_LIMIT       = 60;
 
-// Reply config — 1 in every N liked posts gets a reply
 const REPLY_FREQUENCY      = 3;
-const REPLY_COOLDOWN_DAYS  = 7;    // don't reply to same account more than once per X days
-const MIN_REPLY_TEXT_LEN   = 30;   // minimum post text length to attempt a reply
-const DISCORD_WEBHOOK_URL  = process.env.DISCORD_WEBHOOK_URL || null; // optional run summary
+const REPLY_COOLDOWN_DAYS  = 7;
+const MIN_REPLY_TEXT_LEN   = 30;
+const DISCORD_WEBHOOK_URL  = process.env.DISCORD_WEBHOOK_URL || null;
 const GIST_TOKEN           = process.env.GIST_TOKEN || null;
 const GIST_ID              = process.env.GIST_ID || "9e21611814d0c5b84c94a9bc15ed21fa";
 
-// Follower milestones to celebrate
 const FOLLOWER_MILESTONES  = [100, 250, 500, 1000, 2500, 5000, 10000];
-
-// Weekly summary — posts every Monday
-const WEEKLY_SUMMARY_DAY   = 1; // 0=Sun, 1=Mon
-
-// Account protection
+const WEEKLY_SUMMARY_DAY   = 1;
 const SPIKE_THRESHOLD      = 3;
 const BLOCK_LIST_PATH      = "data/blocklist.json";
 
-// Engagement scoring — weight for prioritizing posts
 const SCORE_LIKE_WEIGHT    = 1;
 const SCORE_REPLY_WEIGHT   = 3;
 const SCORE_REPOST_WEIGHT  = 2;
-const MIN_ENGAGEMENT_SCORE = 0; // 0 = engage with everything, raise to filter low-engagement
-
-// Mutual network — boost accounts followed by people you follow
+const MIN_ENGAGEMENT_SCORE = 0;
 const MUTUAL_NETWORK_BOOST = true;
-
-// Reply personas — rotate between these tones
 const REPLY_PERSONAS = ["hype", "analytical", "friendly"];
-
-// Pause mode flag — checked at start of each run
 const PAUSE_PATH = "data/pause.json";
 
 const DEFAULT_TERMS = [
-  // CS2
   "#CS2", "CS2", "counter-strike",
-  // Apex Legends
   "#ApexLegends", "apex legends",
-  // Overwatch
   "#Overwatch",
-  // Minecraft
   "#Minecraft", "minecraft",
-  // Terraria
   "#Terraria", "terraria",
 ];
 
-// NSFW tags and keywords to filter out — posts containing these will be skipped
 const NSFW_TAGS = [
   "nsfw", "18+", "onlyfans", "lewd", "hentai", "nude", "naked", "porn",
   "xxx", "erotic", "fetish", "adult content", "explicit content", "kink",
@@ -83,7 +62,6 @@ const NSFW_TAGS = [
   "brat ",
 ];
 
-// Political keywords — posts containing these will be skipped entirely
 const POLITICAL_TAGS = [
   "democrat", "republican", "maga", "biden", "trump", "harris", "obama",
   "desantis", "aoc", "bernie", "pelosi", "mcconnell", "election", "ballot",
@@ -113,12 +91,13 @@ const NSFW_EMOJI_LIST = [
 
 const TRIMMED_TERMS_PATH    = "data/trimmed_terms.json";
 const CANDIDATE_TERMS_PATH  = "data/candidate_terms.json";
+const GRADUATED_TERMS_PATH  = "data/graduated_terms.json";
 
-// Term discovery config
-const MAX_CANDIDATE_DISCOVERY = 5;
-const MAX_ACTIVE_SEARCH_TERMS = 15;
+const MAX_CANDIDATE_DISCOVERY  = 5;
+const MAX_ACTIVE_SEARCH_TERMS  = 15;
+const GRADUATE_MIN_RUNS        = 15;   // runs as active before eligible for graduation
+const GRADUATE_MIN_AVG         = 1.0;  // avg engagements/run to graduate
 
-// Protected terms — never auto-trimmed regardless of performance
 const PROTECTED_TERMS = new Set([
   "#CS2", "CS2", "counter-strike",
   "#ApexLegends", "apex legends",
@@ -127,10 +106,10 @@ const PROTECTED_TERMS = new Set([
   "#Terraria", "terraria",
 ]);
 
-// In-memory stores — populated from Gist on startup, written back at end of run
-let _blockListStore   = null;
-let _trimmedStore     = null;
-let _candidateStore   = null;
+let _blockListStore    = null;
+let _trimmedStore      = null;
+let _candidateStore    = null;
+let _graduatedStore    = null;
 
 function loadTrimmedTerms() {
   if (_trimmedStore) return new Set(_trimmedStore);
@@ -156,22 +135,37 @@ function saveCandidateTerms(candidates) {
   fs.writeFileSync(CANDIDATE_TERMS_PATH, JSON.stringify(candidates, null, 2));
 }
 
+function loadGraduatedTerms() {
+  if (_graduatedStore) return new Set(_graduatedStore);
+  if (!fs.existsSync(GRADUATED_TERMS_PATH)) return new Set();
+  try { return new Set(JSON.parse(fs.readFileSync(GRADUATED_TERMS_PATH, "utf8"))); }
+  catch { return new Set(); }
+}
+
+function saveGraduatedTerms(graduatedSet) {
+  _graduatedStore = [...graduatedSet];
+  fs.writeFileSync(GRADUATED_TERMS_PATH, JSON.stringify(_graduatedStore, null, 2));
+}
+
 function initFromGist(gist) {
   if (!gist) return;
   const gistBlockList  = getGistFile(gist, "blocklist.json");
   const gistTrimmed    = getGistFile(gist, "trimmed_terms.json");
   const gistCandidates = getGistFile(gist, "candidate_terms.json");
+  const gistGraduated  = getGistFile(gist, "graduated_terms.json");
   if (gistBlockList)  _blockListStore  = gistBlockList;
   if (gistTrimmed)    _trimmedStore    = gistTrimmed;
   if (gistCandidates) _candidateStore  = gistCandidates;
-  if (gistBlockList || gistTrimmed || gistCandidates) {
+  if (gistGraduated)  _graduatedStore  = gistGraduated;
+  if (gistBlockList || gistTrimmed || gistCandidates || gistGraduated) {
     console.log("📥 Loaded data from Gist");
   }
 }
 
-const TRIMMED_TERMS = loadTrimmedTerms();
+const TRIMMED_TERMS   = loadTrimmedTerms();
 const CANDIDATE_TERMS = loadCandidateTerms();
-const ACTIVE_CANDIDATES = CANDIDATE_TERMS.filter(c => c.status === "active").map(c => c.term);
+const GRADUATED_TERMS = loadGraduatedTerms();
+const ACTIVE_CANDIDATES  = CANDIDATE_TERMS.filter(c => c.status === "active").map(c => c.term);
 
 const NSFW_ACCOUNTS = new Set();
 const SEARCH_TERMS  = [
@@ -179,6 +173,7 @@ const SEARCH_TERMS  = [
     ? process.env.SEARCH_TERMS.split(",").map(s => s.trim()).filter(Boolean)
     : DEFAULT_TERMS),
   ...ACTIVE_CANDIDATES,
+  ...[...GRADUATED_TERMS],
 ].filter(t => !TRIMMED_TERMS.has(t));
 
 if (TRIMMED_TERMS.size > 0) {
@@ -187,11 +182,13 @@ if (TRIMMED_TERMS.size > 0) {
 if (ACTIVE_CANDIDATES.length > 0) {
   console.log(`🧪 Testing ${ACTIVE_CANDIDATES.length} candidate term(s): ${ACTIVE_CANDIDATES.join(", ")}`);
 }
+if (GRADUATED_TERMS.size > 0) {
+  console.log(`🎓 Graduated terms active: ${[...GRADUATED_TERMS].join(", ")}`);
+}
 
 const POSTS_PER_SEARCH = 100;
 const STATS_PATH       = "data/stats.json";
 
-// Ensure data directory exists
 if (!fs.existsSync("data")) fs.mkdirSync("data");
 
 // ── Stats ─────────────────────────────────────────────────
@@ -207,6 +204,7 @@ function loadStats(gist = null) {
     filterHitLog: [],
     replyEngagement: { sent: 0, gotLiked: 0, gotReplied: 0 },
     replyPersonaStats: {},
+    replyPersonaGameStats: {},
     milestonesCelebrated: [],
     lastWeeklySummary: null,
     runHistory: [],
@@ -265,6 +263,7 @@ async function syncAllToGist(stats) {
     const blockList  = _blockListStore  || [...loadBlockList()];
     const trimmed    = _trimmedStore    || [...loadTrimmedTerms()];
     const candidates = _candidateStore  || loadCandidateTerms();
+    const graduated  = _graduatedStore  || [...loadGraduatedTerms()];
 
     const body = JSON.stringify({
       files: {
@@ -272,6 +271,7 @@ async function syncAllToGist(stats) {
         "blocklist.json":       { content: JSON.stringify(blockList,   null, 2) },
         "trimmed_terms.json":   { content: JSON.stringify(trimmed,     null, 2) },
         "candidate_terms.json": { content: JSON.stringify(candidates,  null, 2) },
+        "graduated_terms.json": { content: JSON.stringify(graduated,   null, 2) },
       },
     });
     const res = await request({
@@ -446,12 +446,7 @@ function findFilteredTag(text, tagList) {
 
 function recordFilterHit(stats, handle, reason, keyword = null) {
   if (!stats.filterHitLog) stats.filterHitLog = [];
-  stats.filterHitLog.unshift({
-    handle,
-    reason,
-    keyword,
-    at: new Date().toISOString(),
-  });
+  stats.filterHitLog.unshift({ handle, reason, keyword, at: new Date().toISOString() });
   if (stats.filterHitLog.length > 100) stats.filterHitLog.pop();
 }
 
@@ -738,7 +733,7 @@ async function generateReply(postText, authorHandle, persona = "friendly", token
   }, body);
 
   if (res.status !== 200 || !res.body.content?.[0]?.text) return null;
-  return res.body.content[0].text.trim();
+  return { text: res.body.content[0].text.trim(), gameContext };
 }
 
 async function replyToPost(post, replyText, did, token) {
@@ -814,7 +809,6 @@ async function runUnfollows(did, token, following, followers, stats) {
       : null;
 
     if (followedAt && followedAt > followBackCutoff) {
-      const daysLeft = Math.ceil((followedAt - followBackCutoff) / 86400000) + FOLLOW_BACK_DAYS;
       console.log(`   ⏳ @${handle} — followed ${Math.floor((Date.now() - followedAt) / 86400000)}d ago, waiting ${FOLLOW_BACK_DAYS - Math.floor((Date.now() - followedAt) / 86400000)}d more`);
       continue;
     }
@@ -857,27 +851,37 @@ async function runLikeBackFollowers(did, token, following, followers, stats) {
 }
 
 // ── Follow-back rate ──────────────────────────────────────
-function updateFollowBackRate(stats, followers) {
+async function updateFollowBackRate(stats, followers) {
   if (!stats.followedAt)          stats.followedAt          = {};
   if (!stats.followBackRate)      stats.followBackRate       = { followed: 0, followedBack: 0 };
   if (!stats.termFollowBackRate)  stats.termFollowBackRate   = {};
+
   let newFollowBacks = 0;
+  const newFollowBackDetails = []; // track who followed back for Discord notification
+
   for (const [followedDid, info] of Object.entries(stats.followedAt)) {
     if (info.followedBack) continue;
     if (followers.has(followedDid)) {
       stats.followedAt[followedDid].followedBack = true;
       newFollowBacks++;
+      newFollowBackDetails.push({
+        handle: info.handle || followedDid,
+        term:   info.term   || "unknown",
+        followedAt: info.followedAt,
+      });
       const term = info.term;
       if (term && stats.termFollowBackRate[term]) {
         stats.termFollowBackRate[term].followedBack = (stats.termFollowBackRate[term].followedBack || 0) + 1;
       }
     }
   }
+
   stats.followBackRate.followedBack += newFollowBacks;
   const rate = stats.followBackRate.followed > 0
     ? ((stats.followBackRate.followedBack / stats.followBackRate.followed) * 100).toFixed(1)
     : "0.0";
   console.log(`📈 Follow-back rate: ${rate}% (${stats.followBackRate.followedBack}/${stats.followBackRate.followed})`);
+
   const termRates = Object.entries(stats.termFollowBackRate)
     .filter(([, d]) => d.followed > 0)
     .map(([term, d]) => ({ term, rate: ((d.followedBack || 0) / d.followed * 100).toFixed(1), followed: d.followed }))
@@ -885,6 +889,37 @@ function updateFollowBackRate(stats, followers) {
     .slice(0, 3);
   if (termRates.length > 0) {
     console.log(`📊 Top term follow-back rates: ${termRates.map(t => `"${t.term}" ${t.rate}% (${t.followed})`).join(", ")}`);
+  }
+
+  // ── Discord follow-back notification ──────────────────────
+  if (newFollowBackDetails.length > 0 && DISCORD_WEBHOOK_URL) {
+    console.log(`🎉 ${newFollowBackDetails.length} new follow-back(s) detected`);
+    try {
+      const url = new URL(DISCORD_WEBHOOK_URL);
+      const body = JSON.stringify({
+        embeds: [{
+          title: "🎉 New Follow-Backs!",
+          color: 0x00ff88,
+          description: newFollowBackDetails.map(f => {
+            const daysAgo = f.followedAt
+              ? Math.floor((Date.now() - new Date(f.followedAt)) / 86400000)
+              : null;
+            const timing = daysAgo !== null ? ` (followed ${daysAgo}d ago)` : "";
+            return `**@${f.handle}**${timing} — found via \`${f.term}\``;
+          }).join("\n"),
+          footer: { text: `${rate}% overall follow-back rate • ${stats.followBackRate.followedBack}/${stats.followBackRate.followed} total` },
+        }]
+      });
+      await request({
+        hostname: url.hostname,
+        path: url.pathname + url.search,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      }, body);
+      console.log("📨 Follow-back notification posted to Discord");
+    } catch (e) {
+      console.warn(`Discord follow-back notification failed: ${e.message}`);
+    }
   }
 }
 
@@ -943,8 +978,8 @@ function logTopTerms(stats) {
 }
 
 // ── Auto-trim dead search terms ───────────────────────────────
-const DEAD_TERM_MIN_RUNS     = 15;
-const DEAD_TERM_MIN_AVG      = 0.5;
+const DEAD_TERM_MIN_RUNS = 15;
+const DEAD_TERM_MIN_AVG  = 0.5;
 
 async function autoTrimDeadTerms(stats) {
   if (!stats.termPerformance) return;
@@ -1063,6 +1098,62 @@ const HASHTAG_BLOCKLIST = new Set([
   "twitter", "bluesky", "fediverse", "mastodon",
 ]);
 
+// ── Graduate high-performing candidate terms ──────────────────
+async function graduateCandidateTerms(stats) {
+  const candidates = loadCandidateTerms();
+  const graduated  = loadGraduatedTerms();
+  const newGrads   = [];
+
+  for (const candidate of candidates) {
+    if (candidate.status !== "active") continue;
+
+    const perf = stats.termPerformance?.[candidate.term];
+    if (!perf || perf.runs < GRADUATE_MIN_RUNS) continue;
+
+    const avg = (perf.likes + perf.follows) / perf.runs;
+    if (avg >= GRADUATE_MIN_AVG) {
+      candidate.status       = "graduated";
+      candidate.graduatedAt  = new Date().toISOString();
+      candidate.avgEngagement = avg.toFixed(2);
+      graduated.add(candidate.term);
+      newGrads.push(candidate);
+      console.log(`🎓 Graduated "${candidate.term}" — ${avg.toFixed(2)} avg engagement/run over ${perf.runs} runs`);
+    }
+  }
+
+  if (newGrads.length > 0) {
+    saveCandidateTerms(candidates);
+    saveGraduatedTerms(graduated);
+
+    if (DISCORD_WEBHOOK_URL) {
+      try {
+        const url = new URL(DISCORD_WEBHOOK_URL);
+        const body = JSON.stringify({
+          embeds: [{
+            title: "🎓 Search Terms Graduated!",
+            color: 0xffd600,
+            description: newGrads.map(c =>
+              `**"${c.term}"** — ${c.avgEngagement} avg engagement/run over ${stats.termPerformance[c.term].runs} runs (from ${c.sourceGame})`
+            ).join("\n"),
+            footer: { text: `These terms are now permanently active alongside DEFAULT_TERMS` },
+          }]
+        });
+        await request({
+          hostname: url.hostname,
+          path: url.pathname + url.search,
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        }, body);
+        console.log("📨 Discord graduation notification posted");
+      } catch (e) {
+        console.warn(`Discord graduation notification failed: ${e.message}`);
+      }
+    }
+  }
+
+  return newGrads;
+}
+
 async function discoverNewTerms(token, stats) {
   const candidates = loadCandidateTerms();
   const existingTerms = new Set([
@@ -1072,7 +1163,6 @@ async function discoverNewTerms(token, stats) {
   ]);
 
   const discovered = [];
-
   const seed = GAME_SEEDS[Math.floor(Math.random() * GAME_SEEDS.length)];
   console.log(`\n🔍 Discovering new terms via "${seed.seed}" (${seed.game})...`);
 
@@ -1284,15 +1374,18 @@ async function checkReplyEngagement(did, token, stats) {
       if (res.status === 200 && res.body.posts?.length) {
         const post = res.body.posts[0];
         const persona = reply.persona;
+        const pgKey = persona && reply.gameContext ? `${persona}/${reply.gameContext}` : null;
         if ((post.likeCount || 0) > 0) {
           newLikes++;
           stats.replyEngagement.gotLiked++;
           if (persona && stats.replyPersonaStats[persona]) stats.replyPersonaStats[persona].gotLiked = (stats.replyPersonaStats[persona].gotLiked || 0) + 1;
+          if (pgKey && stats.replyPersonaGameStats?.[pgKey]) stats.replyPersonaGameStats[pgKey].gotLiked = (stats.replyPersonaGameStats[pgKey].gotLiked || 0) + 1;
         }
         if ((post.replyCount || 0) > 0) {
           newReplies++;
           stats.replyEngagement.gotReplied++;
           if (persona && stats.replyPersonaStats[persona]) stats.replyPersonaStats[persona].gotReplied = (stats.replyPersonaStats[persona].gotReplied || 0) + 1;
+          if (pgKey && stats.replyPersonaGameStats?.[pgKey]) stats.replyPersonaGameStats[pgKey].gotReplied = (stats.replyPersonaGameStats[pgKey].gotReplied || 0) + 1;
         }
         reply.checkedEngagement = true;
       }
@@ -1379,7 +1472,7 @@ function getReplyPersona(stats) {
   return REPLY_PERSONAS[idx];
 }
 
-const WHITELIST_PATH   = "data/whitelist.json";
+const WHITELIST_PATH = "data/whitelist.json";
 
 function loadWhitelist() {
   if (!fs.existsSync(WHITELIST_PATH)) return new Set();
@@ -1399,13 +1492,11 @@ function saveBlockList(blockList) {
   fs.writeFileSync(BLOCK_LIST_PATH, JSON.stringify(_blockListStore, null, 2));
 }
 
-// ── autoBlock — adds to runtime blockList Set to prevent re-follow in same run ──
 function autoBlock(did, reason, stats = null, handle = null, following = null, myDid = null, token = null, blockList = null) {
   const list = loadBlockList();
   if (!list.has(did)) {
     list.add(did);
     saveBlockList(list);
-    // Add to runtime blockList Set so bot skips this DID for rest of current run
     if (blockList) blockList.add(did);
     console.log(`   🚫 Auto-blocked ${handle || did} — ${reason}`);
     if (stats) recordFilterHit(stats, handle || did, reason);
@@ -1494,12 +1585,13 @@ async function checkAndPostWeeklySummary(stats, token, did, followerCount) {
   if (now.getUTCDay() !== WEEKLY_SUMMARY_DAY) return;
   if (stats.lastWeeklySummary === today) return;
 
-  const history   = stats.followerHistory || [];
-  const weekAgo   = history.find(h => { const d = (new Date(today) - new Date(h.date)) / 86400000; return d >= 6 && d <= 8; });
+  const history    = stats.followerHistory || [];
+  const weekAgo    = history.find(h => { const d = (new Date(today) - new Date(h.date)) / 86400000; return d >= 6 && d <= 8; });
   const weeklyGain = weekAgo ? followerCount - weekAgo.count : 0;
-  const fbRate    = stats.followBackRate?.followed > 0
+  const fbRate     = stats.followBackRate?.followed > 0
     ? ((stats.followBackRate.followedBack / stats.followBackRate.followed) * 100).toFixed(1) : "0";
 
+  // ── Bluesky post ──────────────────────────────────────────
   let postText;
   if (ANTHROPIC_API_KEY) {
     const body = JSON.stringify({
@@ -1522,6 +1614,61 @@ async function checkAndPostWeeklySummary(stats, token, did, followerCount) {
   if (res.status === 200) {
     stats.lastWeeklySummary = today;
     console.log(`📊 Weekly summary posted: "${postText}"`);
+  }
+
+  // ── Discord weekly summary ────────────────────────────────
+  if (DISCORD_WEBHOOK_URL) {
+    try {
+      // Top 3 performing terms this week
+      const topTerms = Object.entries(stats.termPerformance || {})
+        .sort((a, b) => (b[1].likes + b[1].follows) - (a[1].likes + a[1].follows))
+        .slice(0, 3)
+        .map(([term, d]) => {
+          const avg = (d.likes + d.follows) / (d.runs || 1);
+          return `**"${term}"** — ${avg.toFixed(1)} avg/run (${d.likes}❤️ ${d.follows}➕)`;
+        })
+        .join("\n") || "No data yet";
+
+      // Reply persona breakdown
+      const personaBreakdown = Object.entries(stats.replyPersonaStats || {})
+        .filter(([, d]) => d.sent > 0)
+        .map(([p, d]) => {
+          const likeRate = d.sent > 0 ? ((d.gotLiked || 0) / d.sent * 100).toFixed(0) : "0";
+          return `**${p}**: ${likeRate}% liked (${d.gotLiked || 0}/${d.sent} sent)`;
+        })
+        .join("\n") || "No replies sent yet";
+
+      // Follower growth over past 7 days
+      const growthStr = weeklyGain >= 0 ? `+${weeklyGain}` : `${weeklyGain}`;
+
+      const url = new URL(DISCORD_WEBHOOK_URL);
+      const body = JSON.stringify({
+        embeds: [{
+          title: "📊 Weekly Bot Summary",
+          color: 0xffd600,
+          fields: [
+            { name: "👥 Follower Growth",     value: `${growthStr} this week (${followerCount} total)`, inline: true },
+            { name: "📈 Follow-back Rate",    value: `${fbRate}% (${stats.followBackRate?.followedBack || 0}/${stats.followBackRate?.followed || 0})`, inline: true },
+            { name: "❤️ Total Likes Given",   value: String(stats.totalLikes || 0), inline: true },
+            { name: "💬 Total Replies Sent",  value: String(stats.totalReplies || 0), inline: true },
+            { name: "🔄 Total Runs",          value: String(stats.runs || 0), inline: true },
+            { name: "🗑️ Total Unfollows",     value: String(stats.totalUnfollows || 0), inline: true },
+            { name: "🏆 Top Search Terms",    value: topTerms, inline: false },
+            { name: "🎭 Reply Persona Breakdown", value: personaBreakdown, inline: false },
+          ],
+          footer: { text: `Week ending ${today} • dexterityCS Bluesky Bot` },
+        }]
+      });
+      await request({
+        hostname: url.hostname,
+        path: url.pathname + url.search,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      }, body);
+      console.log("📨 Weekly Discord summary posted");
+    } catch (e) {
+      console.warn(`Discord weekly summary failed: ${e.message}`);
+    }
   }
 }
 
@@ -1577,7 +1724,7 @@ async function run() {
   await checkAndPostWeeklySummary(stats, token, did, followerCount);
 
   recordFollowerCount(stats, followerCount);
-  updateFollowBackRate(stats, followers);
+  await updateFollowBackRate(stats, followers); // now async for Discord notification
 
   let totalUnfollows = 0;
   if (shouldRunUnfollows(stats)) {
@@ -1661,7 +1808,6 @@ async function run() {
     if (!uri || !cid) continue;
     if (likedThisRun.has(authorDid)) continue;
 
-    // Block list check
     if (blockList.has(authorDid)) {
       likedThisRun.add(authorDid);
       continue;
@@ -1769,8 +1915,9 @@ async function run() {
       if (ANTHROPIC_API_KEY && likesSinceLastReply >= REPLY_FREQUENCY) {
         const postText = targetPost.record?.text || "";
         if (postText.length >= MIN_REPLY_TEXT_LEN && canReply(authorDid, stats)) {
-          const replyText = await generateReply(postText, post.author?.handle, currentPersona, token, targetPost.uri);
-          if (replyText) {
+          const replyResult = await generateReply(postText, post.author?.handle, currentPersona, token, targetPost.uri);
+          if (replyResult) {
+            const { text: replyText, gameContext: replyGameContext } = replyResult;
             const replied = await replyToPost(targetPost, replyText, did, token);
             if (replied) {
               totalReplies++;
@@ -1783,13 +1930,19 @@ async function run() {
                 sentAt: new Date().toISOString(),
                 checkedEngagement: false,
                 persona: currentPersona,
+                gameContext: replyGameContext,
               });
               if (stats.sentReplies.length > 50) stats.sentReplies.shift();
               stats.replyEngagement.sent++;
               if (!stats.replyPersonaStats) stats.replyPersonaStats = {};
               if (!stats.replyPersonaStats[currentPersona]) stats.replyPersonaStats[currentPersona] = { sent: 0, gotLiked: 0, gotReplied: 0 };
               stats.replyPersonaStats[currentPersona].sent++;
-              console.log(`   💬 Replied to @${post.author?.handle} [${currentPersona}]: "${replyText}"`);
+              // Track per-persona per-game stats
+              if (!stats.replyPersonaGameStats) stats.replyPersonaGameStats = {};
+              const pgKey = `${currentPersona}/${replyGameContext}`;
+              if (!stats.replyPersonaGameStats[pgKey]) stats.replyPersonaGameStats[pgKey] = { sent: 0, gotLiked: 0, gotReplied: 0, persona: currentPersona, game: replyGameContext };
+              stats.replyPersonaGameStats[pgKey].sent++;
+              console.log(`   💬 Replied to @${post.author?.handle} [${currentPersona}/${replyGameContext}]: "${replyText}"`);
               recordHourlyAction(stats);
               recordDailyAction(stats);
             }
@@ -1826,6 +1979,7 @@ async function run() {
   logTopTerms(stats);
   const trimmedThisRun = await autoTrimDeadTerms(stats);
   await cycleInNextCandidate(trimmedThisRun ? trimmedThisRun.length : 0);
+  await graduateCandidateTerms(stats);
   await discoverNewTerms(token, stats);
 
   const totalActions = totalLikes + totalFollows + totalReplies;
@@ -1875,6 +2029,45 @@ async function run() {
   await saveStatsToGist(stats);
 
   console.log(`📊 Cumulative — ${stats.totalLikes} likes, ${stats.totalFollows} follows, ${stats.totalUnfollows} unfollows, ${stats.totalReplies} replies across ${stats.runs} runs`);
+
+  // Post per-game persona breakdown to Discord if we have data
+  if (DISCORD_WEBHOOK_URL && stats.replyPersonaGameStats && Object.keys(stats.replyPersonaGameStats).length > 0) {
+    try {
+      const pgStats = stats.replyPersonaGameStats;
+      // Group by game
+      const byGame = {};
+      for (const [key, data] of Object.entries(pgStats)) {
+        if (data.sent === 0) continue;
+        if (!byGame[data.game]) byGame[data.game] = [];
+        const likeRate = data.sent > 0 ? ((data.gotLiked || 0) / data.sent * 100).toFixed(0) : "0";
+        byGame[data.game].push(`${data.persona}: ${likeRate}% liked (${data.gotLiked || 0}/${data.sent})`);
+      }
+      const description = Object.entries(byGame)
+        .map(([game, lines]) => `**${game}**\n${lines.join("\n")}`)
+        .join("\n\n");
+
+      if (description) {
+        const url = new URL(DISCORD_WEBHOOK_URL);
+        const body = JSON.stringify({
+          embeds: [{
+            title: "🎭 Reply Persona × Game Breakdown",
+            color: 0xff8c1e,
+            description,
+            footer: { text: `Cumulative across all runs` },
+          }]
+        });
+        await request({
+          hostname: url.hostname,
+          path: url.pathname + url.search,
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        }, body);
+        console.log("📨 Persona/game breakdown posted to Discord");
+      }
+    } catch (e) {
+      console.warn(`Discord persona/game breakdown failed: ${e.message}`);
+    }
+  }
 
   await postDiscordSummary({
     likes: totalLikes, follows: totalFollows, unfollows: totalUnfollows,
