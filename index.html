@@ -46,9 +46,9 @@
     .container {
       position: relative;
       z-index: 1;
-      max-width: 820px;
+      max-width: 1200px;
       margin: 0 auto;
-      padding: 40px 24px;
+      padding: 40px 32px;
     }
 
     /* header */
@@ -531,45 +531,10 @@
   </header>
 
   <!-- Stats -->
-  <div class="section-label">// Session Stats</div>
-  <div class="stats-row" style="grid-template-columns: repeat(3, 1fr);">
-    <div class="stat-card">
-      <div class="stat-label">Likes Given</div>
-      <div class="stat-value accent" id="stat-likes">—</div>
-      <div class="stat-sub">cumulative</div>
-    </div>
-    <div class="stat-card red">
-      <div class="stat-label">Follows Made</div>
-      <div class="stat-value red" id="stat-follows">—</div>
-      <div class="stat-sub">cumulative</div>
-    </div>
-    <div class="stat-card yellow">
-      <div class="stat-label">Unfollows</div>
-      <div class="stat-value yellow" id="stat-unfollows">—</div>
-      <div class="stat-sub">cumulative</div>
-    </div>
-  </div>
-  <div class="stats-row" style="grid-template-columns: repeat(3, 1fr); margin-top: 0;">
-    <div class="stat-card">
-      <div class="stat-label">Replies Sent</div>
-      <div class="stat-value accent" id="stat-replies">—</div>
-      <div class="stat-sub">cumulative</div>
-    </div>
-    <div class="stat-card red">
-      <div class="stat-label">Follow-back Rate</div>
-      <div class="stat-value red" id="stat-followback">—</div>
-      <div class="stat-sub" id="stat-followback-sub">of follows returned</div>
-    </div>
-    <div class="stat-card yellow">
-      <div class="stat-label">Last Run</div>
-      <div class="stat-value yellow" style="font-size:18px; padding-top:8px;" id="stat-lastrun">Never</div>
-      <div class="stat-sub" id="stat-lastrun-sub">no runs yet</div>
-    </div>
-  </div>
 
   <!-- Stats — always visible above tabs -->
   <div class="section-label">// Session Stats</div>
-  <div class="stats-row" style="grid-template-columns: repeat(3, 1fr);">
+  <div class="stats-row" style="grid-template-columns: repeat(6, 1fr); margin-bottom: 24px;">
     <div class="stat-card">
       <div class="stat-label">Likes Given</div>
       <div class="stat-value accent" id="stat-likes">—</div>
@@ -585,8 +550,6 @@
       <div class="stat-value yellow" id="stat-unfollows">—</div>
       <div class="stat-sub">cumulative</div>
     </div>
-  </div>
-  <div class="stats-row" style="grid-template-columns: repeat(3, 1fr); margin-top: 0;">
     <div class="stat-card">
       <div class="stat-label">Replies Sent</div>
       <div class="stat-value accent" id="stat-replies">—</div>
