@@ -7,7 +7,6 @@ const BLUESKY_HANDLE     = process.env.BLUESKY_HANDLE;
 const BLUESKY_PASSWORD   = process.env.BLUESKY_PASSWORD;
 const ANTHROPIC_API_KEY  = process.env.ANTHROPIC_API_KEY;
 const ACTIONS_PER_RUN    = parseInt(process.env.ACTIONS_PER_RUN || "25");
-const INACTIVE_DAYS      = 60;
 const FOLLOW_BACK_DAYS   = 7;
 
 const MIN_FOLLOWERS      = 25;
@@ -57,7 +56,7 @@ const NSFW_TAGS = [
   "bratty", "submissive", "dominant", "domme", "femdom", "findom",
   "daddy dom", "mommy dom", "owned by", "collared", "pet play",
   "little space", "age play", "ddlg", "mdlg",
-  "furry", "fursona", "fursuit", "yiff", "moobs".
+  "furry", "fursona", "fursuit", "yiff",
   "egirl", "e-girl", "bunny girl",
   "brat ",
 ];
@@ -167,7 +166,6 @@ const CANDIDATE_TERMS = loadCandidateTerms();
 const GRADUATED_TERMS = loadGraduatedTerms();
 const ACTIVE_CANDIDATES  = CANDIDATE_TERMS.filter(c => c.status === "active").map(c => c.term);
 
-const NSFW_ACCOUNTS = new Set();
 const SEARCH_TERMS  = [
   ...(process.env.SEARCH_TERMS
     ? process.env.SEARCH_TERMS.split(",").map(s => s.trim()).filter(Boolean)
@@ -413,15 +411,6 @@ async function getProfile(actorDid, token) {
   );
   if (res.status !== 200) return null;
   return res.body;
-}
-
-async function getLastPostDate(actorDid, token) {
-  const res = await apiRequest(
-    `app.bsky.feed.getAuthorFeed?actor=${encodeURIComponent(actorDid)}&limit=1`,
-    "GET", null, token
-  );
-  if (res.status !== 200 || !res.body.feed?.length) return null;
-  return new Date(res.body.feed[0].post.indexedAt);
 }
 
 async function getLatestPost(actorDid, token) {
