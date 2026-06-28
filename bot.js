@@ -863,6 +863,16 @@ async function updateFollowBackRate(stats, followers) {
       const term = info.term;
       if (term && stats.termFollowBackRate[term]) {
         stats.termFollowBackRate[term].followedBack = (stats.termFollowBackRate[term].followedBack || 0) + 1;
+        // Track how many days it took to get a follow-back for this term
+        if (info.followedAt) {
+          const daysToFollowBack = (Date.now() - new Date(info.followedAt)) / 86400000;
+          const tfbr = stats.termFollowBackRate[term];
+          if (!tfbr.totalDaysToFollowBack) tfbr.totalDaysToFollowBack = 0;
+          if (!tfbr.followBackCount) tfbr.followBackCount = 0;
+          tfbr.totalDaysToFollowBack += daysToFollowBack;
+          tfbr.followBackCount++;
+          tfbr.avgDaysToFollowBack = tfbr.totalDaysToFollowBack / tfbr.followBackCount;
+        }
       }
     }
   }
@@ -1793,6 +1803,52 @@ async function checkAndPostMonthlySummary(stats, followerCount) {
   }
 }
 
+// ── Smarter follow budget weights ────────────────────────────
+function computeTermWeights(stats, searchTerms) {
+  const weights = {};
+  const tfbr = stats.termFollowBackRate || {};
+  const tperf = stats.termPerformance || {};
+
+  for (const term of searchTerms) {
+    const fbData  = tfbr[term]  || {};
+    const perfData = tperf[term] || {};
+
+    // Follow-back rate score (0–1): higher is better
+    const fbRate = fbData.followed >= 5
+      ? (fbData.followedBack || 0) / fbData.followed
+      : 0.5; // neutral if not enough data
+
+    // Velocity score (0–1): faster follow-backs = higher score
+    // avgDaysToFollowBack of 1 day = 1.0, 7 days = ~0.3, no data = 0.5
+    const avgDays = fbData.avgDaysToFollowBack;
+    const velocityScore = avgDays != null
+      ? Math.max(0, Math.min(1, 1 / (avgDays * 0.5)))
+      : 0.5;
+
+    // Engagement score (0–1): avg likes+follows per run, normalized
+    const avgEngagement = perfData.runs > 0
+      ? (perfData.likes + perfData.follows) / perfData.runs
+      : 0.5;
+    const engScore = Math.min(1, avgEngagement / 5); // 5 avg = max score
+
+    // Combined weight: follow-back rate is most important
+    const weight = (fbRate * 0.5) + (velocityScore * 0.3) + (engScore * 0.2);
+    weights[term] = Math.max(0.1, weight); // floor of 0.1 so no term is fully starved
+  }
+
+  // Normalize weights so they sum to searchTerms.length (preserves total follow budget)
+  const total = Object.values(weights).reduce((a, b) => a + b, 0);
+  const scale = searchTerms.length / total;
+  for (const term of searchTerms) {
+    weights[term] = weights[term] * scale;
+  }
+
+  const top = Object.entries(weights).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  console.log(`🎯 Term weights: ${top.map(([t, w]) => `"${t}" ${w.toFixed(2)}x`).join(", ")}`);
+
+  return weights;
+}
+
 async function run() {
   if (!BLUESKY_HANDLE || !BLUESKY_PASSWORD) {
     console.error("❌ Missing BLUESKY_HANDLE or BLUESKY_PASSWORD env vars");
@@ -1916,9 +1972,17 @@ async function run() {
 
   console.log(`📊 ${filteredAuthors.length} authors after engagement filter (min score: ${MIN_ENGAGEMENT_SCORE})`);
 
+  const termWeights  = computeTermWeights(stats, SEARCH_TERMS);
   const likedThisRun   = new Set();
   const termLikes      = {};
   const termFollows    = {};
+  // Per-term follow budget: weight × (actionsTarget / SEARCH_TERMS.length)
+  const followsPerTerm = actionsTarget / Math.max(1, SEARCH_TERMS.length);
+  const termFollowBudget = {};
+  for (const term of SEARCH_TERMS) {
+    termFollowBudget[term] = Math.max(1, Math.round(termWeights[term] * followsPerTerm));
+  }
+
   const currentPersona = getReplyPersona(stats);
   console.log(`💬 Reply persona this run: ${currentPersona}`);
 
@@ -1996,7 +2060,7 @@ async function run() {
         } else {
           console.log(`   ⏭️  No new posts from @${post.author?.handle} — skipping`);
           likedThisRun.add(authorDid);
-          if (!following.has(authorDid)) {
+          if (!following.has(authorDid) && (termFollows[term] || 0) < (termFollowBudget[term] || 1)) {
             const followed = await followAccount(authorDid, did, token);
             if (followed) {
               totalFollows++;
@@ -2074,7 +2138,7 @@ async function run() {
       }
     }
 
-    if (!following.has(authorDid)) {
+    if (!following.has(authorDid) && (termFollows[term] || 0) < (termFollowBudget[term] || 1)) {
       const followed = await followAccount(authorDid, did, token);
       if (followed) {
         totalFollows++;
