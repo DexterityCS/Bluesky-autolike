@@ -94,8 +94,8 @@ const GRADUATED_TERMS_PATH  = "data/graduated_terms.json";
 
 const MAX_CANDIDATE_DISCOVERY  = 5;
 const MAX_ACTIVE_SEARCH_TERMS  = 15;
-const GRADUATE_MIN_RUNS        = 15;   // runs as active before eligible for graduation
-const GRADUATE_MIN_AVG         = 1.0;  // avg engagements/run to graduate
+const GRADUATE_MIN_RUNS        = 15;
+const GRADUATE_MIN_AVG         = 1.0;
 
 const PROTECTED_TERMS = new Set([
   "#CS2", "CS2", "counter-strike",
@@ -809,7 +809,15 @@ async function runUnfollows(did, token, following, followers, stats) {
       totalUnfollows++;
       console.log(`   🗑️  Unfollowed @${handle} (not followed back in ${FOLLOW_BACK_DAYS}+ days)`);
       following.delete(targetDid);
-      if (stats.followedAt?.[targetDid]) delete stats.followedAt[targetDid];
+      // ── Decrement followBackRate.followed when unfollowing ──
+      if (stats.followedAt?.[targetDid]) {
+        if (!stats.followedAt[targetDid].followedBack) {
+          // Only decrement if they never followed back — already-followed-back accounts
+          // stay in followedBack count since they're real followers
+          stats.followBackRate.followed = Math.max(0, (stats.followBackRate.followed || 0) - 1);
+        }
+        delete stats.followedAt[targetDid];
+      }
     }
     await sleep(800);
   }
@@ -842,13 +850,26 @@ async function runLikeBackFollowers(did, token, following, followers, stats) {
 }
 
 // ── Follow-back rate ──────────────────────────────────────
-async function updateFollowBackRate(stats, followers) {
+// Recalculates from scratch each run based on current followedAt records
+// so the rate always reflects who you're currently following
+function recalculateFollowBackRate(stats, following) {
+  let followed   = 0;
+  let followedBack = 0;
+  for (const [did, info] of Object.entries(stats.followedAt || {})) {
+    if (!following.has(did)) continue; // skip anyone already unfollowed
+    followed++;
+    if (info.followedBack) followedBack++;
+  }
+  stats.followBackRate = { followed, followedBack };
+  console.log(`📊 Follow-back rate recalculated: ${followed} currently followed, ${followedBack} followed back`);
+}
+
+async function updateFollowBackRate(stats, followers, following) {
   if (!stats.followedAt)          stats.followedAt          = {};
-  if (!stats.followBackRate)      stats.followBackRate       = { followed: 0, followedBack: 0 };
   if (!stats.termFollowBackRate)  stats.termFollowBackRate   = {};
 
   let newFollowBacks = 0;
-  const newFollowBackDetails = []; // track who followed back for Discord notification
+  const newFollowBackDetails = [];
 
   for (const [followedDid, info] of Object.entries(stats.followedAt)) {
     if (info.followedBack) continue;
@@ -863,7 +884,6 @@ async function updateFollowBackRate(stats, followers) {
       const term = info.term;
       if (term && stats.termFollowBackRate[term]) {
         stats.termFollowBackRate[term].followedBack = (stats.termFollowBackRate[term].followedBack || 0) + 1;
-        // Track how many days it took to get a follow-back for this term
         if (info.followedAt) {
           const daysToFollowBack = (Date.now() - new Date(info.followedAt)) / 86400000;
           const tfbr = stats.termFollowBackRate[term];
@@ -877,7 +897,9 @@ async function updateFollowBackRate(stats, followers) {
     }
   }
 
-  stats.followBackRate.followedBack += newFollowBacks;
+  // Recalculate rate from current following state
+  recalculateFollowBackRate(stats, following);
+
   const rate = stats.followBackRate.followed > 0
     ? ((stats.followBackRate.followedBack / stats.followBackRate.followed) * 100).toFixed(1)
     : "0.0";
@@ -908,7 +930,7 @@ async function updateFollowBackRate(stats, followers) {
             const timing = daysAgo !== null ? ` (followed ${daysAgo}d ago)` : "";
             return `**@${f.handle}**${timing} — found via \`${f.term}\``;
           }).join("\n"),
-          footer: { text: `${rate}% overall follow-back rate • ${stats.followBackRate.followedBack}/${stats.followBackRate.followed} total` },
+          footer: { text: `${rate}% overall follow-back rate • ${stats.followBackRate.followedBack}/${stats.followBackRate.followed} currently following` },
         }]
       });
       await request({
@@ -928,7 +950,7 @@ async function updateFollowBackRate(stats, followers) {
   const numericRate = parseFloat(rate);
   if (
     DISCORD_WEBHOOK_URL &&
-    stats.followBackRate.followed >= 50 && // only alert after enough data
+    stats.followBackRate.followed >= 50 &&
     numericRate < FOLLOW_BACK_ALERT_THRESHOLD &&
     numericRate > 0
   ) {
@@ -944,8 +966,8 @@ async function updateFollowBackRate(stats, followers) {
             color: 0xff3d57,
             description: `Follow-back rate has dropped to **${rate}%** — below the ${FOLLOW_BACK_ALERT_THRESHOLD}% threshold.\n\nThis may indicate the bot is following accounts outside the target audience. Consider reviewing active search terms.`,
             fields: [
-              { name: "Current Rate", value: `${rate}%`, inline: true },
-              { name: "Threshold",    value: `${FOLLOW_BACK_ALERT_THRESHOLD}%`, inline: true },
+              { name: "Current Rate",  value: `${rate}%`, inline: true },
+              { name: "Threshold",     value: `${FOLLOW_BACK_ALERT_THRESHOLD}%`, inline: true },
               { name: "Total Tracked", value: `${stats.followBackRate.followedBack}/${stats.followBackRate.followed}`, inline: true },
             ],
             footer: { text: `Alert fires once per day when rate is below threshold with 50+ follows tracked` },
@@ -1154,8 +1176,8 @@ async function graduateCandidateTerms(stats) {
 
     const avg = (perf.likes + perf.follows) / perf.runs;
     if (avg >= GRADUATE_MIN_AVG) {
-      candidate.status       = "graduated";
-      candidate.graduatedAt  = new Date().toISOString();
+      candidate.status        = "graduated";
+      candidate.graduatedAt   = new Date().toISOString();
       candidate.avgEngagement = avg.toFixed(2);
       graduated.add(candidate.term);
       newGrads.push(candidate);
@@ -1633,7 +1655,6 @@ async function checkAndPostWeeklySummary(stats, token, did, followerCount) {
   const fbRate     = stats.followBackRate?.followed > 0
     ? ((stats.followBackRate.followedBack / stats.followBackRate.followed) * 100).toFixed(1) : "0";
 
-  // ── Bluesky post ──────────────────────────────────────────
   let postText;
   if (ANTHROPIC_API_KEY) {
     const body = JSON.stringify({
@@ -1658,10 +1679,8 @@ async function checkAndPostWeeklySummary(stats, token, did, followerCount) {
     console.log(`📊 Weekly summary posted: "${postText}"`);
   }
 
-  // ── Discord weekly summary ────────────────────────────────
   if (DISCORD_WEBHOOK_URL) {
     try {
-      // Top 3 performing terms this week
       const topTerms = Object.entries(stats.termPerformance || {})
         .sort((a, b) => (b[1].likes + b[1].follows) - (a[1].likes + a[1].follows))
         .slice(0, 3)
@@ -1671,7 +1690,6 @@ async function checkAndPostWeeklySummary(stats, token, did, followerCount) {
         })
         .join("\n") || "No data yet";
 
-      // Reply persona breakdown
       const personaBreakdown = Object.entries(stats.replyPersonaStats || {})
         .filter(([, d]) => d.sent > 0)
         .map(([p, d]) => {
@@ -1680,7 +1698,6 @@ async function checkAndPostWeeklySummary(stats, token, did, followerCount) {
         })
         .join("\n") || "No replies sent yet";
 
-      // Follower growth over past 7 days
       const growthStr = weeklyGain >= 0 ? `+${weeklyGain}` : `${weeklyGain}`;
 
       const url = new URL(DISCORD_WEBHOOK_URL);
@@ -1690,7 +1707,7 @@ async function checkAndPostWeeklySummary(stats, token, did, followerCount) {
           color: 0xffd600,
           fields: [
             { name: "👥 Follower Growth",     value: `${growthStr} this week (${followerCount} total)`, inline: true },
-            { name: "📈 Follow-back Rate",    value: `${fbRate}% (${stats.followBackRate?.followedBack || 0}/${stats.followBackRate?.followed || 0})`, inline: true },
+            { name: "📈 Follow-back Rate",    value: `${fbRate}% (${stats.followBackRate?.followedBack || 0}/${stats.followBackRate?.followed || 0} currently following)`, inline: true },
             { name: "❤️ Total Likes Given",   value: String(stats.totalLikes || 0), inline: true },
             { name: "💬 Total Replies Sent",  value: String(stats.totalReplies || 0), inline: true },
             { name: "🔄 Total Runs",          value: String(stats.runs || 0), inline: true },
@@ -1714,8 +1731,6 @@ async function checkAndPostWeeklySummary(stats, token, did, followerCount) {
   }
 }
 
-}
-
 // ── Monthly Discord recap ─────────────────────────────────
 async function checkAndPostMonthlySummary(stats, followerCount) {
   if (!DISCORD_WEBHOOK_URL) return;
@@ -1723,11 +1738,10 @@ async function checkAndPostMonthlySummary(stats, followerCount) {
   const now   = new Date();
   const today = now.toISOString().slice(0, 10);
 
-  // Fire on the 1st of each month
   if (now.getUTCDate() !== 1) return;
   if (stats.lastMonthlySummary === today) return;
 
-  const history = stats.followerHistory || [];
+  const history  = stats.followerHistory || [];
   const monthAgo = history.find(h => {
     const d = (new Date(today) - new Date(h.date)) / 86400000;
     return d >= 28 && d <= 33;
@@ -1738,14 +1752,12 @@ async function checkAndPostMonthlySummary(stats, followerCount) {
     ? ((stats.followBackRate.followedBack / stats.followBackRate.followed) * 100).toFixed(1)
     : "0";
 
-  // Best performing term this month
   const topTerm = Object.entries(stats.termPerformance || {})
     .sort((a, b) => (b[1].likes + b[1].follows) - (a[1].likes + a[1].follows))[0];
   const topTermStr = topTerm
     ? `**"${topTerm[0]}"** — ${((topTerm[1].likes + topTerm[1].follows) / (topTerm[1].runs || 1)).toFixed(1)} avg/run`
     : "No data";
 
-  // Best follow-back term
   const topFbTerm = Object.entries(stats.termFollowBackRate || {})
     .filter(([, d]) => d.followed >= 5)
     .map(([term, d]) => ({ term, rate: ((d.followedBack || 0) / d.followed * 100) }))
@@ -1754,7 +1766,6 @@ async function checkAndPostMonthlySummary(stats, followerCount) {
     ? `**"${topFbTerm.term}"** — ${topFbTerm.rate.toFixed(1)}% follow-back rate`
     : "Not enough data";
 
-  // Best reply persona
   const topPersona = Object.entries(stats.replyPersonaStats || {})
     .filter(([, d]) => d.sent > 0)
     .map(([p, d]) => ({ p, likeRate: (d.gotLiked || 0) / d.sent * 100 }))
@@ -1764,8 +1775,6 @@ async function checkAndPostMonthlySummary(stats, followerCount) {
     : "No data";
 
   const growthStr = monthlyGain >= 0 ? `+${monthlyGain}` : `${monthlyGain}`;
-  const monthName = now.toLocaleString("default", { month: "long", timeZone: "UTC" });
-  // Get previous month name
   const prevMonth = new Date(now);
   prevMonth.setUTCMonth(prevMonth.getUTCMonth() - 1);
   const prevMonthName = prevMonth.toLocaleString("default", { month: "long", timeZone: "UTC" });
@@ -1777,13 +1786,13 @@ async function checkAndPostMonthlySummary(stats, followerCount) {
         title: `📅 ${prevMonthName} Monthly Recap`,
         color: 0xffd600,
         fields: [
-          { name: "👥 Follower Growth",      value: `${growthStr} this month (${followerCount} total)`, inline: true },
-          { name: "📈 Follow-back Rate",     value: `${fbRate}% (${stats.followBackRate?.followedBack || 0}/${stats.followBackRate?.followed || 0})`, inline: true },
-          { name: "❤️ Total Likes Given",    value: String(stats.totalLikes || 0), inline: true },
-          { name: "💬 Total Replies Sent",   value: String(stats.totalReplies || 0), inline: true },
-          { name: "🔄 Total Runs",           value: String(stats.runs || 0), inline: true },
-          { name: "➕ Total Follows Made",   value: String(stats.totalFollows || 0), inline: true },
-          { name: "🏆 Best Search Term",     value: topTermStr, inline: false },
+          { name: "👥 Follower Growth",       value: `${growthStr} this month (${followerCount} total)`, inline: true },
+          { name: "📈 Follow-back Rate",      value: `${fbRate}% (${stats.followBackRate?.followedBack || 0}/${stats.followBackRate?.followed || 0} currently following)`, inline: true },
+          { name: "❤️ Total Likes Given",     value: String(stats.totalLikes || 0), inline: true },
+          { name: "💬 Total Replies Sent",    value: String(stats.totalReplies || 0), inline: true },
+          { name: "🔄 Total Runs",            value: String(stats.runs || 0), inline: true },
+          { name: "➕ Total Follows Made",    value: String(stats.totalFollows || 0), inline: true },
+          { name: "🏆 Best Search Term",      value: topTermStr, inline: false },
           { name: "🎯 Best Follow-back Term", value: topFbStr, inline: false },
           { name: "🎭 Best Reply Persona",    value: topPersonaStr, inline: false },
         ],
@@ -1806,37 +1815,31 @@ async function checkAndPostMonthlySummary(stats, followerCount) {
 // ── Smarter follow budget weights ────────────────────────────
 function computeTermWeights(stats, searchTerms) {
   const weights = {};
-  const tfbr = stats.termFollowBackRate || {};
-  const tperf = stats.termPerformance || {};
+  const tfbr  = stats.termFollowBackRate || {};
+  const tperf = stats.termPerformance    || {};
 
   for (const term of searchTerms) {
-    const fbData  = tfbr[term]  || {};
+    const fbData   = tfbr[term]  || {};
     const perfData = tperf[term] || {};
 
-    // Follow-back rate score (0–1): higher is better
     const fbRate = fbData.followed >= 5
       ? (fbData.followedBack || 0) / fbData.followed
-      : 0.5; // neutral if not enough data
+      : 0.5;
 
-    // Velocity score (0–1): faster follow-backs = higher score
-    // avgDaysToFollowBack of 1 day = 1.0, 7 days = ~0.3, no data = 0.5
     const avgDays = fbData.avgDaysToFollowBack;
     const velocityScore = avgDays != null
       ? Math.max(0, Math.min(1, 1 / (avgDays * 0.5)))
       : 0.5;
 
-    // Engagement score (0–1): avg likes+follows per run, normalized
     const avgEngagement = perfData.runs > 0
       ? (perfData.likes + perfData.follows) / perfData.runs
       : 0.5;
-    const engScore = Math.min(1, avgEngagement / 5); // 5 avg = max score
+    const engScore = Math.min(1, avgEngagement / 5);
 
-    // Combined weight: follow-back rate is most important
     const weight = (fbRate * 0.5) + (velocityScore * 0.3) + (engScore * 0.2);
-    weights[term] = Math.max(0.1, weight); // floor of 0.1 so no term is fully starved
+    weights[term] = Math.max(0.1, weight);
   }
 
-  // Normalize weights so they sum to searchTerms.length (preserves total follow budget)
   const total = Object.values(weights).reduce((a, b) => a + b, 0);
   const scale = searchTerms.length / total;
   for (const term of searchTerms) {
@@ -1902,7 +1905,7 @@ async function run() {
   await checkAndPostMonthlySummary(stats, followerCount);
 
   recordFollowerCount(stats, followerCount);
-  await updateFollowBackRate(stats, followers); // now async for Discord notification
+  await updateFollowBackRate(stats, followers, following);
 
   let totalUnfollows = 0;
   if (shouldRunUnfollows(stats)) {
@@ -1922,7 +1925,7 @@ async function run() {
   console.log(`\n🔎 Search terms: ${SEARCH_TERMS.join(", ")}`);
 
   const latestPostByAuthor = new Map();
-  const postTermMap = new Map();
+  const postTermMap        = new Map();
 
   for (const term of SEARCH_TERMS) {
     console.log(`\n🔍 Searching "${term}"...`);
@@ -1972,11 +1975,10 @@ async function run() {
 
   console.log(`📊 ${filteredAuthors.length} authors after engagement filter (min score: ${MIN_ENGAGEMENT_SCORE})`);
 
-  const termWeights  = computeTermWeights(stats, SEARCH_TERMS);
+  const termWeights    = computeTermWeights(stats, SEARCH_TERMS);
   const likedThisRun   = new Set();
   const termLikes      = {};
   const termFollows    = {};
-  // Per-term follow budget: weight × (actionsTarget / SEARCH_TERMS.length)
   const followsPerTerm = actionsTarget / Math.max(1, SEARCH_TERMS.length);
   const termFollowBudget = {};
   for (const term of SEARCH_TERMS) {
@@ -2066,7 +2068,6 @@ async function run() {
               totalFollows++;
               following.set(authorDid, { handle: post.author?.handle });
               stats.followedAt[authorDid] = { handle: post.author?.handle, followedBack: false, followedAt: new Date().toISOString(), term };
-              stats.followBackRate.followed++;
               termFollows[term] = (termFollows[term] || 0) + 1;
               if (!stats.termFollowBackRate) stats.termFollowBackRate = {};
               if (!stats.termFollowBackRate[term]) stats.termFollowBackRate[term] = { followed: 0, followedBack: 0 };
@@ -2123,7 +2124,6 @@ async function run() {
               if (!stats.replyPersonaStats) stats.replyPersonaStats = {};
               if (!stats.replyPersonaStats[currentPersona]) stats.replyPersonaStats[currentPersona] = { sent: 0, gotLiked: 0, gotReplied: 0 };
               stats.replyPersonaStats[currentPersona].sent++;
-              // Track per-persona per-game stats
               if (!stats.replyPersonaGameStats) stats.replyPersonaGameStats = {};
               const pgKey = `${currentPersona}/${replyGameContext}`;
               if (!stats.replyPersonaGameStats[pgKey]) stats.replyPersonaGameStats[pgKey] = { sent: 0, gotLiked: 0, gotReplied: 0, persona: currentPersona, game: replyGameContext };
@@ -2144,7 +2144,6 @@ async function run() {
         totalFollows++;
         following.set(authorDid, { handle: post.author?.handle });
         stats.followedAt[authorDid] = { handle: post.author?.handle, followedBack: false, followedAt: new Date().toISOString(), term };
-        stats.followBackRate.followed++;
         termFollows[term] = (termFollows[term] || 0) + 1;
         if (!stats.termFollowBackRate) stats.termFollowBackRate = {};
         if (!stats.termFollowBackRate[term]) stats.termFollowBackRate[term] = { followed: 0, followedBack: 0 };
@@ -2186,7 +2185,7 @@ async function run() {
     .sort((a, b) => (b[1].likes + b[1].follows) - (a[1].likes + a[1].follows))[0]?.[0] || "—";
 
   console.log(`\n✅ Run complete — ${totalLikes} likes, ${totalFollows} follows, ${totalUnfollows} unfollows, ${totalReplies} replies`);
-  console.log(`📈 Follow-back rate: ${rate}% (${stats.followBackRate.followedBack}/${stats.followBackRate.followed})`);
+  console.log(`📈 Follow-back rate: ${rate}% (${stats.followBackRate.followedBack}/${stats.followBackRate.followed} currently following)`);
   console.log(`👥 Net followers this run: ${netFollowers >= 0 ? "+" : ""}${netFollowers}`);
   console.log(`🚫 Filtered this run: ${stats.filteredCount || 0} accounts`);
   if (stats.replyEngagement?.sent > 0) {
@@ -2202,13 +2201,13 @@ async function run() {
   stats.lastRun        = new Date().toISOString();
 
   recordRunHistory(stats, {
-    timestamp:  new Date().toISOString(),
-    likes:      totalLikes,
-    follows:    totalFollows,
-    unfollows:  totalUnfollows,
-    replies:    totalReplies,
+    timestamp:   new Date().toISOString(),
+    likes:       totalLikes,
+    follows:     totalFollows,
+    unfollows:   totalUnfollows,
+    replies:     totalReplies,
     netFollowers,
-    filtered:   stats.filteredCount || 0,
+    filtered:    stats.filteredCount || 0,
   });
 
   saveStats(stats);
@@ -2216,12 +2215,10 @@ async function run() {
 
   console.log(`📊 Cumulative — ${stats.totalLikes} likes, ${stats.totalFollows} follows, ${stats.totalUnfollows} unfollows, ${stats.totalReplies} replies across ${stats.runs} runs`);
 
-  // Post per-game persona breakdown to Discord if we have data
   if (DISCORD_WEBHOOK_URL && stats.replyPersonaGameStats && Object.keys(stats.replyPersonaGameStats).length > 0) {
     try {
       const pgStats = stats.replyPersonaGameStats;
-      // Group by game
-      const byGame = {};
+      const byGame  = {};
       for (const [key, data] of Object.entries(pgStats)) {
         if (data.sent === 0) continue;
         if (!byGame[data.game]) byGame[data.game] = [];
