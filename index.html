@@ -624,7 +624,7 @@
         <button class="btn-secondary" style="padding:8px 14px;" onclick="addToBlocklist()">+ Add</button>
       </div>
       <div id="blocklist-entries" style="font-size:11px;color:var(--muted);">Loading...</div>
-      <div style="font-size:10px;color:var(--muted);margin-top:8px;">Changes are saved to localStorage and pushed to blocklist.json on next run trigger.</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:8px;">Loaded live from Gist. Changes made here are display-only — to permanently block an account, the bot handles it automatically during runs.</div>
     </div>
   </div>
 
@@ -730,6 +730,42 @@
     </div>
   </div>
 
+  <!-- Candidate Term Queue -->
+  <div class="panel" style="margin-bottom:16px;">
+    <div class="panel-header">
+      <span class="panel-title">Candidate Term Queue</span>
+      <span style="font-size:11px;color:var(--muted);">Discovered • Testing • Graduated</span>
+    </div>
+    <div class="panel-body" style="padding:0;">
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;padding:10px 20px;border-bottom:1px solid var(--border);color:var(--muted);letter-spacing:1px;font-size:10px;text-transform:uppercase;">
+        <span>Term</span><span>Source</span><span>Status</span><span>Discovered</span>
+      </div>
+      <div id="candidate-rows" style="color:var(--muted);padding:14px 20px;font-size:11px;">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Graduated Terms -->
+  <div class="panel" style="margin-bottom:16px;">
+    <div class="panel-header">
+      <span class="panel-title">Graduated Terms</span>
+      <span style="font-size:11px;color:var(--yellow);">★ Permanently Active</span>
+    </div>
+    <div class="panel-body" style="padding:0;">
+      <div id="graduated-rows" style="color:var(--muted);padding:14px 20px;font-size:11px;">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Trimmed Terms -->
+  <div class="panel" style="margin-bottom:16px;">
+    <div class="panel-header">
+      <span class="panel-title">Trimmed Terms</span>
+      <span style="font-size:11px;color:var(--accent2);">✂ Removed — Low Engagement</span>
+    </div>
+    <div class="panel-body" style="padding:0;">
+      <div id="trimmed-rows" style="color:var(--muted);padding:14px 20px;font-size:11px;">Loading...</div>
+    </div>
+  </div>
+
   <footer>
     <span>dexterityCS Automation Suite</span>
     <a href="https://twitch.tv/dexterity_cs" target="_blank">twitch.tv/dexterity_cs</a>
@@ -747,16 +783,35 @@
   const ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions`;
   const DISPATCH_URL = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/${WORKFLOW_FILE}/dispatches`;
 
-  const STATS_URL = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/stats.json`;
+  // Gist — live source of truth for all data
+  const GIST_ID  = "9e21611814d0c5b84c94a9bc15ed21fa";
+  const GIST_URL = `https://api.github.com/gists/${GIST_ID}`;
+
+  // Cache the gist response to avoid multiple fetches per page load
+  let _gistCache = null;
+  async function fetchGistFile(filename) {
+    try {
+      if (!_gistCache) {
+        const res = await fetch(GIST_URL, { headers: { "Accept": "application/vnd.github+json" } });
+        if (!res.ok) throw new Error(`Gist fetch failed: ${res.status}`);
+        _gistCache = await res.json();
+      }
+      const rawUrl = _gistCache.files?.[filename]?.raw_url;
+      if (!rawUrl) return null;
+      const r = await fetch(rawUrl);
+      if (!r.ok) return null;
+      return await r.json();
+    } catch (e) {
+      console.warn(`fetchGistFile(${filename}) failed:`, e.message);
+      return null;
+    }
+  }
 
   // Fetch real stats from stats.json in the repo via GitHub API (no CDN cache)
   async function fetchStats() {
     try {
-      const res = await fetch(STATS_URL, {
-        headers: { "Accept": "application/vnd.github.raw+json" }
-      });
-      if (!res.ok) return;
-      const data = await res.json();
+      const data = await fetchGistFile("stats.json");
+      if (!data) { console.warn("Could not load stats from Gist"); return; }
       document.getElementById("stat-likes").textContent = data.totalLikes ?? "0";
       document.getElementById("stat-follows").textContent = data.totalFollows ?? "0";
       document.getElementById("stat-unfollows").textContent = data.totalUnfollows ?? "0";
@@ -1016,9 +1071,8 @@
   // ── Export stats ──────────────────────────────────────────
   async function exportStats() {
     try {
-      const res = await fetch(STATS_URL, { headers: { "Accept": "application/vnd.github.raw+json" } });
-      if (!res.ok) { log("❌ Could not fetch stats for export.", "error"); return; }
-      const data = await res.json();
+      const data = await fetchGistFile("stats.json");
+      if (!data) { log("❌ Could not fetch stats for export.", "error"); return; }
       const csv = buildCSV(data);
       const blob = new Blob([csv], { type: "text/csv" });
       const url = URL.createObjectURL(blob);
@@ -1100,8 +1154,16 @@
     }
   }
 
-  // ── Blocklist manager ─────────────────────────────────────
-  let blocklistEntries = JSON.parse(localStorage.getItem("bsky_blocklist") || "[]");
+  // ── Blocklist manager — reads from Gist ──────────────────
+  let blocklistEntries = [];
+
+  async function loadBlocklistFromGist() {
+    const container = document.getElementById("blocklist-entries");
+    container.textContent = "Loading...";
+    const data = await fetchGistFile("blocklist.json");
+    blocklistEntries = data || [];
+    renderBlocklist();
+  }
 
   function renderBlocklist() {
     const container = document.getElementById("blocklist-entries");
@@ -1121,17 +1183,73 @@
     const val = input.value.trim();
     if (!val || blocklistEntries.includes(val)) return;
     blocklistEntries.push(val);
-    localStorage.setItem("bsky_blocklist", JSON.stringify(blocklistEntries));
     renderBlocklist();
     input.value = "";
-    log(`🚫 Added ${val} to block list.`, "warn");
+    log(`🚫 Added ${val} to block list. Will sync to Gist on next bot run.`, "warn");
   }
 
   function removeFromBlocklist(index) {
     blocklistEntries.splice(index, 1);
-    localStorage.setItem("bsky_blocklist", JSON.stringify(blocklistEntries));
     renderBlocklist();
+    log("Removed entry. Changes will sync to Gist on next bot run.", "warn");
   }
+
+  loadBlocklistFromGist();
+
+  // ── Candidate term queue ──────────────────────────────────
+  async function loadCandidateTerms() {
+    const rows = document.getElementById("candidate-rows");
+    if (!rows) return;
+    const data = await fetchGistFile("candidate_terms.json");
+    if (!data || data.length === 0) { rows.textContent = "No candidates discovered yet."; return; }
+    const statusColor = { queued: "var(--muted)", active: "var(--accent)", graduated: "var(--yellow)" };
+    const statusLabel = { queued: "⏳ Queued", active: "🧪 Testing", graduated: "🎓 Graduated" };
+    rows.innerHTML = data.map((c, i) => {
+      const date = c.discoveredAt ? new Date(c.discoveredAt).toLocaleDateString([], { month: "short", day: "numeric" }) : "—";
+      return `<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;padding:9px 20px;border-bottom:1px solid var(--border);${i === data.length-1 ? "border-bottom:none;" : ""}">
+        <span style="color:var(--accent);">${c.term}</span>
+        <span style="color:var(--muted);">${c.sourceGame || "—"}</span>
+        <span style="color:${statusColor[c.status] || "var(--muted)"};">${statusLabel[c.status] || c.status}</span>
+        <span style="color:var(--muted);">${date}</span>
+      </div>`;
+    }).join("");
+  }
+
+  loadCandidateTerms();
+
+  // ── Graduated terms ───────────────────────────────────────
+  async function loadGraduatedTerms() {
+    const rows = document.getElementById("graduated-rows");
+    if (!rows) return;
+    const data = await fetchGistFile("graduated_terms.json");
+    if (!data || data.length === 0) {
+      rows.innerHTML = `<div style="padding:14px 20px;font-size:11px;color:var(--muted);">No graduated terms yet — terms need 15 runs averaging 1.0+ engagements/run.</div>`;
+      return;
+    }
+    rows.innerHTML = data.map((term, i) => `
+      <div style="padding:9px 20px;border-bottom:1px solid var(--border);${i === data.length-1 ? "border-bottom:none;" : ""}">
+        <span style="color:var(--yellow);">★ ${term}</span>
+      </div>`).join("");
+  }
+
+  loadGraduatedTerms();
+
+  // ── Trimmed terms ─────────────────────────────────────────
+  async function loadTrimmedTerms() {
+    const rows = document.getElementById("trimmed-rows");
+    if (!rows) return;
+    const data = await fetchGistFile("trimmed_terms.json");
+    if (!data || data.length === 0) {
+      rows.innerHTML = `<div style="padding:14px 20px;font-size:11px;color:var(--muted);">No trimmed terms yet.</div>`;
+      return;
+    }
+    rows.innerHTML = data.map((term, i) => `
+      <div style="padding:9px 20px;border-bottom:1px solid var(--border);${i === data.length-1 ? "border-bottom:none;" : ""}">
+        <span style="color:var(--accent2);">✂ ${term}</span>
+      </div>`).join("");
+  }
+
+  loadTrimmedTerms();
 
   // ── Search terms for manual trigger ─────────────────────
   const DEFAULT_TERMS = [
