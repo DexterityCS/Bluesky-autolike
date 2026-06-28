@@ -730,6 +730,42 @@
     </div>
   </div>
 
+  <!-- Candidate Term Queue -->
+  <div class="panel" style="margin-bottom:16px;">
+    <div class="panel-header">
+      <span class="panel-title">Candidate Term Queue</span>
+      <span style="font-size:11px;color:var(--muted);">Discovered • Testing • Graduated</span>
+    </div>
+    <div class="panel-body" style="padding:0;">
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;padding:10px 20px;border-bottom:1px solid var(--border);color:var(--muted);letter-spacing:1px;font-size:10px;text-transform:uppercase;">
+        <span>Term</span><span>Source</span><span>Status</span><span>Discovered</span>
+      </div>
+      <div id="candidate-rows" style="color:var(--muted);padding:14px 20px;font-size:11px;">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Graduated Terms -->
+  <div class="panel" style="margin-bottom:16px;">
+    <div class="panel-header">
+      <span class="panel-title">Graduated Terms</span>
+      <span style="font-size:11px;color:var(--yellow);">★ Permanently Active</span>
+    </div>
+    <div class="panel-body" style="padding:0;">
+      <div id="graduated-rows" style="color:var(--muted);padding:14px 20px;font-size:11px;">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Trimmed Terms -->
+  <div class="panel" style="margin-bottom:16px;">
+    <div class="panel-header">
+      <span class="panel-title">Trimmed Terms</span>
+      <span style="font-size:11px;color:var(--accent2);">✂ Removed — Low Engagement</span>
+    </div>
+    <div class="panel-body" style="padding:0;">
+      <div id="trimmed-rows" style="color:var(--muted);padding:14px 20px;font-size:11px;">Loading...</div>
+    </div>
+  </div>
+
   <footer>
     <span>dexterityCS Automation Suite</span>
     <a href="https://twitch.tv/dexterity_cs" target="_blank">twitch.tv/dexterity_cs</a>
@@ -747,16 +783,29 @@
   const ACTIONS_URL = `https://github.com/${GITHUB_USER}/${GITHUB_REPO}/actions`;
   const DISPATCH_URL = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/${WORKFLOW_FILE}/dispatches`;
 
-  const STATS_URL = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/stats.json`;
+  // Gist — live source of truth for all data
+  const GIST_ID   = "9e21611814d0c5b84c94a9bc15ed21fa";
+  const GIST_URL  = `https://api.github.com/gists/${GIST_ID}`;
 
-  // Fetch real stats from stats.json in the repo via GitHub API (no CDN cache)
+  // Fetch a file from the Gist by filename
+  async function fetchGistFile(filename) {
+    try {
+      const res = await fetch(GIST_URL);
+      if (!res.ok) return null;
+      const gist = await res.json();
+      const rawUrl = gist.files?.[filename]?.raw_url;
+      if (!rawUrl) return null;
+      const r = await fetch(rawUrl);
+      if (!r.ok) return null;
+      return await r.json();
+    } catch { return null; }
+  }
+
+  // Fetch real stats from Gist (updated every bot run)
   async function fetchStats() {
     try {
-      const res = await fetch(STATS_URL, {
-        headers: { "Accept": "application/vnd.github.raw+json" }
-      });
-      if (!res.ok) return;
-      const data = await res.json();
+      const data = await fetchGistFile("stats.json");
+      if (!data) { console.warn("Could not fetch stats from Gist"); return; }
       document.getElementById("stat-likes").textContent = data.totalLikes ?? "0";
       document.getElementById("stat-follows").textContent = data.totalFollows ?? "0";
       document.getElementById("stat-unfollows").textContent = data.totalUnfollows ?? "0";
@@ -1016,9 +1065,8 @@
   // ── Export stats ──────────────────────────────────────────
   async function exportStats() {
     try {
-      const res = await fetch(STATS_URL, { headers: { "Accept": "application/vnd.github.raw+json" } });
-      if (!res.ok) { log("❌ Could not fetch stats for export.", "error"); return; }
-      const data = await res.json();
+      const data = await fetchGistFile("stats.json");
+      if (!data) { log("❌ Could not fetch stats for export.", "error"); return; }
       const csv = buildCSV(data);
       const blob = new Blob([csv], { type: "text/csv" });
       const url = URL.createObjectURL(blob);
@@ -1106,23 +1154,8 @@
   async function loadBlocklistFromGist() {
     const container = document.getElementById("blocklist-entries");
     container.textContent = "Loading...";
-    try {
-      const gistRes = await fetch(STATS_URL);
-      if (gistRes.ok) {
-        const gistData = await gistRes.json();
-        const rawUrl = gistData.files?.["blocklist.json"]?.raw_url;
-        if (rawUrl) {
-          const r = await fetch(rawUrl);
-          if (r.ok) {
-            blocklistEntries = await r.json();
-            renderBlocklist();
-            return;
-          }
-        }
-      }
-    } catch {}
-    // Fallback — empty
-    blocklistEntries = [];
+    const data = await fetchGistFile("blocklist.json");
+    blocklistEntries = data || [];
     renderBlocklist();
   }
 
@@ -1156,6 +1189,69 @@
   }
 
   loadBlocklistFromGist();
+
+  // ── Candidate term queue ──────────────────────────────────
+  async function loadCandidateTerms() {
+    const rows = document.getElementById("candidate-rows");
+    const data = await fetchGistFile("candidate_terms.json");
+    if (!data || data.length === 0) {
+      rows.textContent = "No candidates discovered yet.";
+      return;
+    }
+
+    const statusColor = { queued: "var(--muted)", active: "var(--accent)", graduated: "var(--yellow)" };
+    const statusLabel = { queued: "⏳ Queued", active: "🧪 Testing", graduated: "🎓 Graduated" };
+
+    rows.innerHTML = data.map((c, i) => {
+      const date = c.discoveredAt ? new Date(c.discoveredAt).toLocaleDateString([], { month: "short", day: "numeric" }) : "—";
+      const color = statusColor[c.status] || "var(--muted)";
+      const label = statusLabel[c.status] || c.status;
+      return `<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;padding:9px 20px;border-bottom:1px solid var(--border);${i === data.length - 1 ? "border-bottom:none;" : ""}">
+        <span style="color:var(--accent);">${c.term}</span>
+        <span style="color:var(--muted);">${c.sourceGame || "—"}</span>
+        <span style="color:${color};">${label}</span>
+        <span style="color:var(--muted);">${date}</span>
+      </div>`;
+    }).join("");
+  }
+
+  loadCandidateTerms();
+
+  // ── Graduated terms ───────────────────────────────────────
+  async function loadGraduatedTerms() {
+    const rows = document.getElementById("graduated-rows");
+    const data = await fetchGistFile("graduated_terms.json");
+    if (!data || data.length === 0) {
+      rows.innerHTML = `<div style="padding:14px 20px;font-size:11px;color:var(--muted);">No graduated terms yet — terms need ${15} runs averaging 1.0+ engagements/run.</div>`;
+      return;
+    }
+    rows.innerHTML = data.map((term, i) => `
+      <div style="padding:9px 20px;border-bottom:1px solid var(--border);${i === data.length - 1 ? "border-bottom:none;" : ""}">
+        <span style="color:var(--yellow);">★ ${term}</span>
+      </div>`).join("");
+  }
+
+  loadGraduatedTerms();
+
+  // ── Trimmed terms ─────────────────────────────────────────
+  async function loadTrimmedTerms() {
+    const rows = document.getElementById("trimmed-rows");
+    const data = await fetchGistFile("trimmed_terms.json");
+    if (!data || data.length === 0) {
+      rows.innerHTML = `<div style="padding:14px 20px;font-size:11px;color:var(--muted);">No trimmed terms yet.</div>`;
+      return;
+    }
+    rows.innerHTML = data.map((term, i) => `
+      <div style="padding:9px 20px;border-bottom:1px solid var(--border);${i === data.length - 1 ? "border-bottom:none;" : ""}">
+        <span style="color:var(--accent2);">✂ ${term}</span>
+      </div>`).join("");
+  }
+
+  loadTrimmedTerms();
+
+
+
+  renderBlocklist();
   let searchTerms = JSON.parse(localStorage.getItem("bsky_search_terms") || "null") || [...DEFAULT_TERMS];
 
   function renderTags() {
