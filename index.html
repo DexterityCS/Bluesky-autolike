@@ -356,26 +356,6 @@
 
     .step-link:hover { border-color: var(--accent); }
 
-    /* log */
-    .log-area {
-      background: #000;
-      border: 1px solid var(--border);
-      padding: 16px;
-      font-size: 12px;
-      line-height: 1.8;
-      min-height: 120px;
-      max-height: 240px;
-      overflow-y: auto;
-      color: var(--muted);
-    }
-
-    .log-line { display: flex; gap: 12px; }
-    .log-time { color: var(--muted); opacity: 0.5; min-width: 80px; }
-    .log-msg.success { color: var(--green); }
-    .log-msg.error { color: var(--accent2); }
-    .log-msg.info { color: var(--accent); }
-    .log-msg.warn { color: var(--yellow); }
-
     /* hashtag tags */
     .tags {
       display: flex;
@@ -589,21 +569,6 @@
 
   <!-- TAB: Overview -->
   <div class="tab-pane active" id="tab-overview">
-
-    <!-- Live Run Log -->
-    <div class="panel" style="margin-bottom: 16px;">
-      <div class="panel-header">
-        <span class="panel-title">Live Run Log</span>
-        <div style="display:flex;gap:8px;align-items:center;">
-          <span id="log-status" style="font-size:11px;color:var(--muted);">Idle</span>
-          <button class="btn-secondary" style="padding:6px 12px;font-size:10px;" onclick="refreshLog()">↻ Refresh</button>
-          <button class="btn-secondary" style="padding:6px 12px;font-size:10px;" onclick="clearLog()">Clear</button>
-        </div>
-      </div>
-      <div class="log-area" id="log">
-        <div class="log-line"><span class="log-time">—</span><span class="log-msg">Waiting for run...</span></div>
-      </div>
-    </div>
 
     <!-- Run History -->
     <div class="panel" style="margin-bottom:16px;">
@@ -1047,26 +1012,43 @@
       ? followerHistory[followerHistory.length - 1].count
       : 0;
 
+    const MILESTONES_LOG = MILESTONES.map(m => Math.log10(m));
+    const currentLog     = current > 0 ? Math.log10(Math.max(1, current)) : 0;
+    const minLog         = 0; // log10(1)
+    const maxLog         = MILESTONES_LOG[MILESTONES_LOG.length - 1];
+
     const nextMilestone = MILESTONES.find(m => m > current) || MILESTONES[MILESTONES.length - 1];
+    const allReached    = current >= MILESTONES[MILESTONES.length - 1];
+
+    // Bar fills to current position on log scale
+    const barPct = allReached ? 100 : Math.min(100, ((currentLog - minLog) / (maxLog - minLog)) * 100);
+
+    // Progress toward next milestone (for label)
     const prevMilestone = MILESTONES.slice().reverse().find(m => m <= current) || 0;
     const pct = nextMilestone > prevMilestone
       ? Math.min(100, ((current - prevMilestone) / (nextMilestone - prevMilestone)) * 100)
       : 100;
 
-    document.getElementById("milestone-bar").style.width = `${pct.toFixed(1)}%`;
-    document.getElementById("milestone-label").textContent =
-      current >= MILESTONES[MILESTONES.length - 1]
-        ? `🎉 All milestones reached! ${current.toLocaleString()} followers`
-        : `${current.toLocaleString()} / ${nextMilestone.toLocaleString()} followers — ${pct.toFixed(1)}% to next milestone`;
+    document.getElementById("milestone-bar").style.width = `${barPct.toFixed(1)}%`;
+    document.getElementById("milestone-label").textContent = allReached
+      ? `🎉 All milestones reached! ${current.toLocaleString()} followers`
+      : `${current.toLocaleString()} / ${nextMilestone.toLocaleString()} followers — ${pct.toFixed(1)}% to next milestone`;
 
-    // Milestone markers
+    // Milestone markers — positioned proportionally on log scale
     const markers = document.getElementById("milestone-markers");
-    markers.innerHTML = MILESTONES.map(m => {
-      const reached = current >= m;
-      const isNext  = m === nextMilestone;
-      return `<div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
-        <div style="width:8px;height:8px;border-radius:50%;background:${reached ? "var(--green)" : isNext ? "var(--accent)" : "var(--border)"};${isNext ? "box-shadow:0 0 6px var(--accent);" : ""}"></div>
-        <span style="font-size:9px;color:${reached ? "var(--green)" : isNext ? "var(--accent)" : "var(--muted)"};letter-spacing:1px;">${m >= 1000 ? m/1000 + "K" : m}</span>
+    markers.style.position = "relative";
+    markers.style.height   = "24px";
+    markers.innerHTML = MILESTONES.map((m, idx) => {
+      const reached  = current >= m;
+      const isNext   = m === nextMilestone && !allReached;
+      const posPct   = ((MILESTONES_LOG[idx] - minLog) / (maxLog - minLog)) * 100;
+      const color    = reached ? "var(--green)" : isNext ? "var(--accent)" : "var(--muted)";
+      const dotBg    = reached ? "var(--green)" : isNext ? "var(--accent)" : "var(--border)";
+      const glow     = isNext ? "box-shadow:0 0 6px var(--accent);" : "";
+      const label    = m >= 1000 ? m / 1000 + "K" : m;
+      return `<div style="position:absolute;left:${posPct}%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:3px;">
+        <div style="width:8px;height:8px;border-radius:50%;background:${dotBg};${glow}"></div>
+        <span style="font-size:9px;color:${color};letter-spacing:1px;white-space:nowrap;">${label}</span>
       </div>`;
     }).join("");
   }
@@ -1183,16 +1165,6 @@
              next: () => { if (currentPage < totalPages() - 1) { currentPage++; render(); } } };
   }
 
-  function log(msg, type = "") {
-    const area = document.getElementById("log");
-    const now = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
-    const line = document.createElement("div");
-    line.className = "log-line";
-    line.innerHTML = `<span class="log-time">${now}</span><span class="log-msg ${type}">${msg}</span>`;
-    area.appendChild(line);
-    area.scrollTop = area.scrollHeight;
-  }
-
   // load saved token into input on page load
   (function loadSavedToken() {
     const _savedToken = localStorage.getItem("bsky_bot_gh_token") || "";
@@ -1206,7 +1178,7 @@
     localStorage.removeItem("bsky_bot_gh_token");
     document.getElementById("token-input").value = "";
     document.getElementById("remember-token").checked = false;
-    log("Token cleared from local storage.", "warn");
+    console.log("Token cleared from local storage.", "warn");
   }
 
   // ── Upcoming runs ─────────────────────────────────────────
@@ -1293,7 +1265,7 @@
     paused = !paused;
     localStorage.setItem("bsky_paused", JSON.stringify(paused));
     renderPauseState();
-    log(paused ? "⏸️ Bot paused — scheduled runs will be skipped." : "▶️ Bot resumed.", paused ? "warn" : "success");
+    console.log(paused ? "⏸️ Bot paused — scheduled runs will be skipped." : "▶️ Bot resumed.");
   }
 
   renderPauseState();
@@ -1302,15 +1274,15 @@
   async function exportStats() {
     try {
       const data = await fetchGistFile("stats.json");
-      if (!data) { log("❌ Could not fetch stats for export.", "error"); return; }
+      if (!data) { console.log("❌ Could not fetch stats for export.", "error"); return; }
       const csv = buildCSV(data);
       const blob = new Blob([csv], { type: "text/csv" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url; a.download = "bluesky-stats.csv"; a.click();
       URL.revokeObjectURL(url);
-      log("⬇️ Stats exported as CSV.", "success");
-    } catch (e) { log(`❌ Export failed: ${e.message}`, "error"); }
+      console.log("⬇️ Stats exported as CSV.", "success");
+    } catch (e) { console.log(`❌ Export failed: ${e.message}`, "error"); }
   }
 
   function buildCSV(data) {
@@ -1334,56 +1306,6 @@
   }
 
   // ── Live run log (polls GitHub Actions API) ───────────────
-  let logPollInterval = null;
-
-  async function refreshLog() {
-    const token = document.getElementById("token-input").value.trim();
-    if (!token) { log("Enter your GitHub token to view live logs.", "warn"); return; }
-
-    document.getElementById("log-status").textContent = "Fetching...";
-    document.getElementById("log-status").style.color = "var(--accent)";
-
-    try {
-      const runsRes = await fetch(
-        `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/${WORKFLOW_FILE}/runs?per_page=1`,
-        { headers: { "Authorization": `Bearer ${token}`, "Accept": "application/vnd.github+json" } }
-      );
-      const runsData = await runsRes.json();
-      const run = runsData.workflow_runs?.[0];
-      if (!run) { log("No runs found.", "warn"); return; }
-
-      const status = run.status;
-      const conclusion = run.conclusion;
-      document.getElementById("log-status").textContent = status === "completed" ? conclusion : status;
-      document.getElementById("log-status").style.color = conclusion === "success" ? "var(--green)" : status === "in_progress" ? "var(--accent)" : "var(--accent2)";
-
-      // Get jobs
-      const jobsRes = await fetch(run.jobs_url, { headers: { "Authorization": `Bearer ${token}`, "Accept": "application/vnd.github+json" } });
-      const jobsData = await jobsRes.json();
-      const job = jobsData.jobs?.[0];
-      if (!job) return;
-
-      // Get log lines from steps
-      const logArea = document.getElementById("log");
-      logArea.innerHTML = "";
-      for (const step of job.steps || []) {
-        const stepColor = step.conclusion === "success" ? "success" : step.conclusion === "failure" ? "error" : "info";
-        log(`${step.conclusion === "success" ? "✅" : step.conclusion === "failure" ? "❌" : "⏳"} ${step.name}`, stepColor);
-      }
-
-      // Auto-poll if in progress
-      if (status === "in_progress") {
-        if (!logPollInterval) logPollInterval = setInterval(refreshLog, 10000);
-      } else {
-        clearInterval(logPollInterval); logPollInterval = null;
-      }
-    } catch (e) {
-      log(`❌ Log fetch failed: ${e.message}`, "error");
-      document.getElementById("log-status").textContent = "Error";
-      document.getElementById("log-status").style.color = "var(--accent2)";
-    }
-  }
-
   // ── Blocklist manager — reads from Gist ──────────────────
   let blocklistEntries = [];
   let _blocklistPager = null;
@@ -1423,13 +1345,11 @@
     blocklistEntries.push(val);
     renderBlocklist();
     input.value = "";
-    log(`🚫 Added ${val} to block list. Will sync to Gist on next bot run.`, "warn");
   }
 
   function removeFromBlocklist(index) {
     blocklistEntries.splice(index, 1);
     renderBlocklist();
-    log("Removed entry. Changes will sync to Gist on next bot run.", "warn");
   }
 
   loadBlocklistFromGist();
@@ -1648,10 +1568,6 @@
     localStorage.setItem("bsky_actions_per_run", val);
   }
 
-  function clearLog() {
-    document.getElementById("log").innerHTML = "";
-  }
-
   function openActions() {
     window.open(ACTIONS_URL, "_blank");
   }
@@ -1665,21 +1581,21 @@
     label.textContent = "Triggering...";
     progress.classList.add("animating");
 
-    log("Requesting manual run via GitHub Actions...", "info");
+    console.log("Requesting manual run via GitHub Actions...", "info");
 
     // Read token from input field
     const token = document.getElementById("token-input").value.trim();
     const remember = document.getElementById("remember-token").checked;
 
     if (!token) {
-      log("❌ No token entered — paste your GitHub PAT above.", "error");
+      console.log("❌ No token entered — paste your GitHub PAT above.", "error");
       reset();
       return;
     }
 
     if (remember) {
       localStorage.setItem("bsky_bot_gh_token", token);
-      log("Token saved to local storage.", "info");
+      console.log("Token saved to local storage.", "info");
     } else {
       localStorage.removeItem("bsky_bot_gh_token");
     }
@@ -1696,8 +1612,8 @@
       });
 
       if (res.status === 204) {
-        log("✅ Run dispatched successfully!", "success");
-        log("Stats will update once the run completes (~1 min).", "info");
+        console.log("✅ Run dispatched successfully!", "success");
+        console.log("Stats will update once the run completes (~1 min).", "info");
 
         // Lock button for 60s to prevent double-triggering
         let countdown = 60;
@@ -1717,10 +1633,10 @@
         setTimeout(fetchStats, 90000);
       } else {
         const err = await res.json().catch(() => ({}));
-        log(`❌ Failed (${res.status}): ${err.message || "Unknown error"}`, "error");
+        console.log(`❌ Failed (${res.status}): ${err.message || "Unknown error"}`, "error");
       }
     } catch (e) {
-      log(`❌ Network error: ${e.message}`, "error");
+      console.log(`❌ Network error: ${e.message}`, "error");
     }
 
     reset();
