@@ -208,6 +208,7 @@ function loadStats(gist = null) {
     runHistory: [],
     actionsHistory: [],
     termFollowBackRate: {},
+    lastFollowBackAlert: null,
   };
   if (gist) {
     const gistStats = getGistFile(gist, "stats.json");
@@ -908,6 +909,47 @@ async function updateFollowBackRate(stats, followers) {
       console.log("📨 Follow-back notification posted to Discord");
     } catch (e) {
       console.warn(`Discord follow-back notification failed: ${e.message}`);
+    }
+  }
+
+  // ── Follow-back rate alert ────────────────────────────────
+  const FOLLOW_BACK_ALERT_THRESHOLD = 2.0;
+  const numericRate = parseFloat(rate);
+  if (
+    DISCORD_WEBHOOK_URL &&
+    stats.followBackRate.followed >= 50 && // only alert after enough data
+    numericRate < FOLLOW_BACK_ALERT_THRESHOLD &&
+    numericRate > 0
+  ) {
+    const lastAlertDate = stats.lastFollowBackAlert || null;
+    const today = new Date().toISOString().slice(0, 10);
+    if (lastAlertDate !== today) {
+      stats.lastFollowBackAlert = today;
+      try {
+        const url = new URL(DISCORD_WEBHOOK_URL);
+        const body = JSON.stringify({
+          embeds: [{
+            title: "⚠️ Follow-Back Rate Alert",
+            color: 0xff3d57,
+            description: `Follow-back rate has dropped to **${rate}%** — below the ${FOLLOW_BACK_ALERT_THRESHOLD}% threshold.\n\nThis may indicate the bot is following accounts outside the target audience. Consider reviewing active search terms.`,
+            fields: [
+              { name: "Current Rate", value: `${rate}%`, inline: true },
+              { name: "Threshold",    value: `${FOLLOW_BACK_ALERT_THRESHOLD}%`, inline: true },
+              { name: "Total Tracked", value: `${stats.followBackRate.followedBack}/${stats.followBackRate.followed}`, inline: true },
+            ],
+            footer: { text: `Alert fires once per day when rate is below threshold with 50+ follows tracked` },
+          }]
+        });
+        await request({
+          hostname: url.hostname,
+          path: url.pathname + url.search,
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        }, body);
+        console.log(`⚠️  Follow-back rate alert posted to Discord (${rate}%)`);
+      } catch (e) {
+        console.warn(`Discord follow-back alert failed: ${e.message}`);
+      }
     }
   }
 }
