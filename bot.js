@@ -57,7 +57,7 @@ const NSFW_TAGS = [
   "bratty", "submissive", "dominant", "domme", "femdom", "findom",
   "daddy dom", "mommy dom", "owned by", "collared", "pet play",
   "little space", "age play", "ddlg", "mdlg",
-  "furry", "fursona", "fursuit", "yiff",
+  "furry", "fursona", "fursuit", "yiff", "moobs".
   "egirl", "e-girl", "bunny girl",
   "brat ",
 ];
@@ -2076,7 +2076,25 @@ async function run() {
   });
 }
 
-run().catch((err) => {
+run().catch(async (err) => {
   console.error("❌ Bot error:", err.message);
+  if (DISCORD_WEBHOOK_URL) {
+    try {
+      const url = new URL(DISCORD_WEBHOOK_URL);
+      await request({
+        hostname: url.hostname,
+        path: url.pathname + url.search,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      }, JSON.stringify({
+        embeds: [{
+          title: "❌ Bot Run Failed",
+          color: 0xff3d57,
+          description: `\`\`\`${err.message}\`\`\``,
+          footer: { text: new Date().toLocaleString() },
+        }]
+      }));
+    } catch {}
+  }
   process.exit(1);
 });
