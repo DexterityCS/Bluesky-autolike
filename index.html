@@ -1012,41 +1012,50 @@
       ? followerHistory[followerHistory.length - 1].count
       : 0;
 
-    const MILESTONES_LOG = MILESTONES.map(m => Math.log10(m));
-    const currentLog     = current > 0 ? Math.log10(Math.max(1, current)) : 0;
-    const minLog         = 0; // log10(1)
-    const maxLog         = MILESTONES_LOG[MILESTONES_LOG.length - 1];
-
-    const nextMilestone = MILESTONES.find(m => m > current) || MILESTONES[MILESTONES.length - 1];
     const allReached    = current >= MILESTONES[MILESTONES.length - 1];
-
-    // Bar fills to current position on log scale
-    const barPct = allReached ? 100 : Math.min(100, ((currentLog - minLog) / (maxLog - minLog)) * 100);
-
-    // Progress toward next milestone (for label)
+    const nextMilestone = MILESTONES.find(m => m > current) || MILESTONES[MILESTONES.length - 1];
     const prevMilestone = MILESTONES.slice().reverse().find(m => m <= current) || 0;
-    const pct = nextMilestone > prevMilestone
+
+    // Use log scale anchored exactly to milestone positions
+    // Position each milestone evenly 0..100 across the bar
+    const total = MILESTONES.length; // 7 milestones
+    const getMilestonePos = (m) => (MILESTONES.indexOf(m) / (total - 1)) * 100;
+
+    // Bar fills from 0 to current position interpolated between prev and next milestone
+    const prevIdx = prevMilestone > 0 ? MILESTONES.indexOf(prevMilestone) : -1;
+    const nextIdx = MILESTONES.indexOf(nextMilestone);
+    const prevPos = prevMilestone > 0 ? getMilestonePos(prevMilestone) : 0;
+    const nextPos = getMilestonePos(nextMilestone);
+    const pctBetween = nextMilestone > prevMilestone
+      ? (current - prevMilestone) / (nextMilestone - prevMilestone)
+      : 1;
+    const barPct = allReached ? 100 : prevPos + (nextPos - prevPos) * pctBetween;
+
+    // Label shows progress to next milestone
+    const pctLabel = nextMilestone > prevMilestone
       ? Math.min(100, ((current - prevMilestone) / (nextMilestone - prevMilestone)) * 100)
       : 100;
 
     document.getElementById("milestone-bar").style.width = `${barPct.toFixed(1)}%`;
     document.getElementById("milestone-label").textContent = allReached
       ? `🎉 All milestones reached! ${current.toLocaleString()} followers`
-      : `${current.toLocaleString()} / ${nextMilestone.toLocaleString()} followers — ${pct.toFixed(1)}% to next milestone`;
+      : `${current.toLocaleString()} / ${nextMilestone.toLocaleString()} followers — ${pctLabel.toFixed(1)}% to next milestone`;
 
-    // Milestone markers — positioned proportionally on log scale
+    // Markers absolutely positioned at even intervals
     const markers = document.getElementById("milestone-markers");
     markers.style.position = "relative";
     markers.style.height   = "24px";
     markers.innerHTML = MILESTONES.map((m, idx) => {
       const reached  = current >= m;
       const isNext   = m === nextMilestone && !allReached;
-      const posPct   = ((MILESTONES_LOG[idx] - minLog) / (maxLog - minLog)) * 100;
+      const posPct   = (idx / (total - 1)) * 100;
       const color    = reached ? "var(--green)" : isNext ? "var(--accent)" : "var(--muted)";
       const dotBg    = reached ? "var(--green)" : isNext ? "var(--accent)" : "var(--border)";
       const glow     = isNext ? "box-shadow:0 0 6px var(--accent);" : "";
       const label    = m >= 1000 ? m / 1000 + "K" : m;
-      return `<div style="position:absolute;left:${posPct}%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:3px;">
+      // Clamp edge markers so they don't overflow
+      const transform = idx === 0 ? "translateX(0)" : idx === total - 1 ? "translateX(-100%)" : "translateX(-50%)";
+      return `<div style="position:absolute;left:${posPct}%;transform:${transform};display:flex;flex-direction:column;align-items:center;gap:3px;">
         <div style="width:8px;height:8px;border-radius:50%;background:${dotBg};${glow}"></div>
         <span style="font-size:9px;color:${color};letter-spacing:1px;white-space:nowrap;">${label}</span>
       </div>`;
