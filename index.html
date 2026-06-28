@@ -650,6 +650,20 @@
       </div>
     </div>
 
+    <!-- Follow-back Leaderboard -->
+    <div class="panel" style="margin-bottom:16px;">
+      <div class="panel-header">
+        <span class="panel-title">Follow-back Leaderboard</span>
+        <span style="font-size:11px;color:var(--green);">Top terms by follow-back rate</span>
+      </div>
+      <div class="panel-body" style="padding:0;">
+        <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;padding:10px 20px;border-bottom:1px solid var(--border);color:var(--muted);letter-spacing:1px;font-size:10px;text-transform:uppercase;">
+          <span>Term</span><span>Followed</span><span>Back</span><span>Rate</span>
+        </div>
+        <div id="followback-leaderboard-rows" style="color:var(--muted);padding:14px 20px;font-size:11px;">Loading...</div>
+      </div>
+    </div>
+
     <!-- Candidate Term Queue -->
     <div class="panel" style="margin-bottom:16px;">
       <div class="panel-header">
@@ -1486,6 +1500,47 @@
   }
 
   loadReplyEngagement();
+
+  // ── Follow-back leaderboard ───────────────────────────────
+  async function loadFollowBackLeaderboard() {
+    const rows = document.getElementById("followback-leaderboard-rows");
+    if (!rows) return;
+    const data = await fetchGistFile("stats.json");
+    const termFbr = data?.termFollowBackRate;
+    if (!termFbr || Object.keys(termFbr).length === 0) {
+      rows.innerHTML = `<div style="padding:0 0 4px;font-size:11px;color:var(--muted);">No follow-back data yet — accumulates as the bot follows accounts.</div>`;
+      return;
+    }
+
+    const entries = Object.entries(termFbr)
+      .filter(([, d]) => d.followed >= 5) // min 5 follows before showing rate
+      .map(([term, d]) => ({
+        term,
+        followed: d.followed || 0,
+        followedBack: d.followedBack || 0,
+        rate: d.followed > 0 ? ((d.followedBack || 0) / d.followed * 100) : 0,
+      }))
+      .sort((a, b) => b.rate - a.rate || b.followed - a.followed);
+
+    if (entries.length === 0) {
+      rows.innerHTML = `<div style="padding:0 0 4px;font-size:11px;color:var(--muted);">Not enough data yet — need at least 5 follows per term.</div>`;
+      return;
+    }
+
+    rows.innerHTML = entries.map((e, i) => {
+      const rateStr = `${e.rate.toFixed(1)}%`;
+      const rateColor = e.rate >= 5 ? "var(--green)" : e.rate >= 2 ? "var(--yellow)" : "var(--accent2)";
+      const medal = i === 0 ? "🥇 " : i === 1 ? "🥈 " : i === 2 ? "🥉 " : "";
+      return `<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;padding:9px 20px;border-bottom:1px solid var(--border);${i === entries.length - 1 ? "border-bottom:none;" : ""}">
+        <span style="color:var(--accent);">${medal}${e.term}</span>
+        <span style="color:var(--text);">${e.followed}</span>
+        <span style="color:var(--text);">${e.followedBack}</span>
+        <span style="color:${rateColor};font-weight:bold;">${rateStr}</span>
+      </div>`;
+    }).join("");
+  }
+
+  loadFollowBackLeaderboard();
 
   // ── Search terms for manual trigger ─────────────────────
   const DEFAULT_TERMS = [
