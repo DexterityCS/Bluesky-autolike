@@ -33,24 +33,9 @@ const PLAYER_CONTEXT = {
   },
 };
 
-// ── Completed incremental games ───────────────────────────
-const INCREMENTAL_GAMES = [
-  "Zero Stress King Idle Defense", "You Know The Drill", "Unboxathon",
-  "Trashy Cashy", "Trainatic", "Tower Wizard", "Tiny Biomes: Cozy Idle",
-  "A Stupid Game About Pouring Drinks for the P.T.A", "Soba's Gunpaw",
-  "Smash Hit Museum", "Slime Ward", "Shelldiver", "Row Divers",
-  "Rogue Light Deck Builder", "Profit Sea Incremental", "Pinata Go Boom",
-  "Particul", "Nodebuster", "Max Manos", "Max Manos 2", "Lyca",
-  "Loot Loop", "Keep On Mining! - Worlds", "Keep on Mining",
-  "Incremental Dice", "Increknight", "Incredicer", "Increbraintal",
-  "Gridkeeper", "The Gnorp Apologue", "Game of Grass",
-  "A Game About Digging A Hole", "Fortune Mill", "Fill Up The Hole",
-  "Duncrush", "Digseum", "Dice People", "Deep Space Cache", "Cult Nation",
-  "Click and Conquer", "Captain Whiskers: Incremental Seas",
-  "Budgie's Bug Shop", "Bit-cremental: Fishistry",
-  "Auto Snakes in Outer Space", "Antivirus PROTOCOL",
-  "All Hail the Orb", "Alchemist's Garden",
-];
+// ── Completed incremental games — loaded from Gist ───────
+// Edit incremental_games.json in your Gist to add/remove games
+let INCREMENTAL_GAMES = [];
 
 // Only celebrate completions unlocked after this date (when bot was set up)
 // Prevents posting about games completed before the content bot existed
@@ -93,9 +78,23 @@ async function fetchContentStats() {
       },
     });
     if (res.status !== 200) return getDefaultContentStats();
-    const file = res.body.files?.["content_stats.json"];
-    if (!file?.content) return getDefaultContentStats();
-    return { ...getDefaultContentStats(), ...JSON.parse(file.content) };
+
+    // Load content stats
+    const statsFile = res.body.files?.["content_stats.json"];
+    const stats = statsFile?.content
+      ? { ...getDefaultContentStats(), ...JSON.parse(statsFile.content) }
+      : getDefaultContentStats();
+
+    // Load incremental games list
+    const gamesFile = res.body.files?.["incremental_games.json"];
+    if (gamesFile?.content) {
+      INCREMENTAL_GAMES = JSON.parse(gamesFile.content);
+      console.log(`🎮 Loaded ${INCREMENTAL_GAMES.length} incremental games from Gist`);
+    } else {
+      console.warn("⚠️  incremental_games.json not found in Gist — add it to enable incremental posts");
+    }
+
+    return stats;
   } catch { return getDefaultContentStats(); }
 }
 
@@ -436,6 +435,10 @@ async function run() {
 
   let context = {};
   if (type === "incremental") {
+    if (INCREMENTAL_GAMES.length === 0) {
+      console.warn("⚠️  No incremental games loaded — skipping incremental post this run");
+      return;
+    }
     // Pick a game not recently posted about
     const posted = new Set(contentStats.postedIncrementals || []);
     const available = INCREMENTAL_GAMES.filter(g => !posted.has(g));
