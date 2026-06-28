@@ -205,6 +205,7 @@ function loadStats(gist = null) {
     replyPersonaGameStats: {},
     milestonesCelebrated: [],
     lastWeeklySummary: null,
+    lastMonthlySummary: null,
     runHistory: [],
     actionsHistory: [],
     termFollowBackRate: {},
@@ -1703,6 +1704,95 @@ async function checkAndPostWeeklySummary(stats, token, did, followerCount) {
   }
 }
 
+}
+
+// ── Monthly Discord recap ─────────────────────────────────
+async function checkAndPostMonthlySummary(stats, followerCount) {
+  if (!DISCORD_WEBHOOK_URL) return;
+
+  const now   = new Date();
+  const today = now.toISOString().slice(0, 10);
+
+  // Fire on the 1st of each month
+  if (now.getUTCDate() !== 1) return;
+  if (stats.lastMonthlySummary === today) return;
+
+  const history = stats.followerHistory || [];
+  const monthAgo = history.find(h => {
+    const d = (new Date(today) - new Date(h.date)) / 86400000;
+    return d >= 28 && d <= 33;
+  });
+  const monthlyGain = monthAgo ? followerCount - monthAgo.count : 0;
+
+  const fbRate = stats.followBackRate?.followed > 0
+    ? ((stats.followBackRate.followedBack / stats.followBackRate.followed) * 100).toFixed(1)
+    : "0";
+
+  // Best performing term this month
+  const topTerm = Object.entries(stats.termPerformance || {})
+    .sort((a, b) => (b[1].likes + b[1].follows) - (a[1].likes + a[1].follows))[0];
+  const topTermStr = topTerm
+    ? `**"${topTerm[0]}"** — ${((topTerm[1].likes + topTerm[1].follows) / (topTerm[1].runs || 1)).toFixed(1)} avg/run`
+    : "No data";
+
+  // Best follow-back term
+  const topFbTerm = Object.entries(stats.termFollowBackRate || {})
+    .filter(([, d]) => d.followed >= 5)
+    .map(([term, d]) => ({ term, rate: ((d.followedBack || 0) / d.followed * 100) }))
+    .sort((a, b) => b.rate - a.rate)[0];
+  const topFbStr = topFbTerm
+    ? `**"${topFbTerm.term}"** — ${topFbTerm.rate.toFixed(1)}% follow-back rate`
+    : "Not enough data";
+
+  // Best reply persona
+  const topPersona = Object.entries(stats.replyPersonaStats || {})
+    .filter(([, d]) => d.sent > 0)
+    .map(([p, d]) => ({ p, likeRate: (d.gotLiked || 0) / d.sent * 100 }))
+    .sort((a, b) => b.likeRate - a.likeRate)[0];
+  const topPersonaStr = topPersona
+    ? `**${topPersona.p}** — ${topPersona.likeRate.toFixed(0)}% like rate`
+    : "No data";
+
+  const growthStr = monthlyGain >= 0 ? `+${monthlyGain}` : `${monthlyGain}`;
+  const monthName = now.toLocaleString("default", { month: "long", timeZone: "UTC" });
+  // Get previous month name
+  const prevMonth = new Date(now);
+  prevMonth.setUTCMonth(prevMonth.getUTCMonth() - 1);
+  const prevMonthName = prevMonth.toLocaleString("default", { month: "long", timeZone: "UTC" });
+
+  try {
+    const url = new URL(DISCORD_WEBHOOK_URL);
+    const body = JSON.stringify({
+      embeds: [{
+        title: `📅 ${prevMonthName} Monthly Recap`,
+        color: 0xffd600,
+        fields: [
+          { name: "👥 Follower Growth",      value: `${growthStr} this month (${followerCount} total)`, inline: true },
+          { name: "📈 Follow-back Rate",     value: `${fbRate}% (${stats.followBackRate?.followedBack || 0}/${stats.followBackRate?.followed || 0})`, inline: true },
+          { name: "❤️ Total Likes Given",    value: String(stats.totalLikes || 0), inline: true },
+          { name: "💬 Total Replies Sent",   value: String(stats.totalReplies || 0), inline: true },
+          { name: "🔄 Total Runs",           value: String(stats.runs || 0), inline: true },
+          { name: "➕ Total Follows Made",   value: String(stats.totalFollows || 0), inline: true },
+          { name: "🏆 Best Search Term",     value: topTermStr, inline: false },
+          { name: "🎯 Best Follow-back Term", value: topFbStr, inline: false },
+          { name: "🎭 Best Reply Persona",    value: topPersonaStr, inline: false },
+        ],
+        footer: { text: `${prevMonthName} summary • dexterityCS Bluesky Bot` },
+      }]
+    });
+    await request({
+      hostname: url.hostname,
+      path: url.pathname + url.search,
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    }, body);
+    stats.lastMonthlySummary = today;
+    console.log(`📅 Monthly Discord recap posted for ${prevMonthName}`);
+  } catch (e) {
+    console.warn(`Discord monthly recap failed: ${e.message}`);
+  }
+}
+
 async function run() {
   if (!BLUESKY_HANDLE || !BLUESKY_PASSWORD) {
     console.error("❌ Missing BLUESKY_HANDLE or BLUESKY_PASSWORD env vars");
@@ -1753,6 +1843,7 @@ async function run() {
   await checkReplyEngagement(did, token, stats);
   await checkAndPostMilestones(followerCount, stats, token, did);
   await checkAndPostWeeklySummary(stats, token, did, followerCount);
+  await checkAndPostMonthlySummary(stats, followerCount);
 
   recordFollowerCount(stats, followerCount);
   await updateFollowBackRate(stats, followers); // now async for Discord notification
