@@ -515,8 +515,26 @@ const GAMING_TERMS = [
   "game", "gameplay", "highlights", "clip", "play of the game",
 ];
 
+// ── Context exclusion — terms that indicate CS2 = Cities Skylines 2 ──
+const CITIES_SKYLINES_TERMS = [
+  "cities skylines", "city skylines", "zoning", "traffic flow", "city planning",
+  "road layout", "urban planning", "city builder", "mayor", "downtown",
+  "residential zone", "commercial zone", "industrial zone", "public transit",
+  "chirper", "paradox", "colossal order", "tile", "intersection",
+  "roundabout", "highway ramp", "city sprawl", "mass transit",
+];
+
+function isCitiesSkylines(text) {
+  const lower = text.toLowerCase();
+  return CITIES_SKYLINES_TERMS.some(term => lower.includes(term));
+}
+
 function isGamingRelevant(post) {
   const text = (post.record?.text || "").toLowerCase();
+
+  // Exclude Cities Skylines 2 posts that use "CS2" — wrong game
+  if (isCitiesSkylines(text)) return false;
+
   if (GAMING_TERMS.some(term => text.includes(term))) return true;
   const tags = post.record?.tags || [];
   if (tags.some(t => GAMING_TERMS.some(term => t.toLowerCase().includes(term)))) return true;
@@ -527,7 +545,15 @@ function isGamingRelevant(post) {
 async function isGamingRelevantAI(postText) {
   if (!ANTHROPIC_API_KEY) return true;
   const text = postText.toLowerCase();
-  const hasObviousTerm = GAMING_TERMS.some(term => text.includes(term));
+
+  // Don't short-circuit on cs2 alone — could be Cities Skylines 2
+  // Only skip AI check if we have unambiguous gaming terms
+  const unambiguousTerms = GAMING_TERMS.filter(t => t !== "cs2" && t !== "#cs2");
+  const hasObviousTerm = unambiguousTerms.some(term => text.includes(term));
+
+  // Also skip if Cities Skylines context detected
+  if (isCitiesSkylines(text)) return false;
+
   if (hasObviousTerm) return true;
 
   try {
@@ -720,13 +746,39 @@ async function generateReply(postText, authorHandle, persona = "friendly", token
     }
   } catch {}
 
-  if (containsFilteredTag(postText, POLITICAL_TAGS)) {
-    console.log(`   🚫 Skipped reply — political post`);
+  if (isFilteredContent(postText)) {
+    console.log(`   🚫 Skipped reply — filtered content (NSFW/political)`);
     return null;
   }
-  if (containsFilteredTag(postText, NSFW_TAGS)) {
-    console.log(`   🚫 Skipped reply — NSFW post`);
-    return null;
+
+  // Final AI guard — explicitly verify post is gaming before replying
+  if (ANTHROPIC_API_KEY) {
+    try {
+      const guardCheck = JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 10,
+        system: "You are a content classifier. Answer only YES or NO.",
+        messages: [{
+          role: "user",
+          content: `Is this post specifically about gaming, esports, or game streaming? Note: CS2 can mean Counter-Strike 2 OR Cities Skylines 2 — only answer YES if it's clearly about a shooter/FPS/action game, not a city builder. Answer only YES or NO.\n\n"${postText.slice(0, 300)}"`
+        }]
+      });
+      const guardRes = await request({
+        hostname: "api.anthropic.com",
+        path: "/v1/messages",
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": ANTHROPIC_API_KEY,
+          "anthropic-version": "2023-06-01",
+        },
+      }, guardCheck);
+      const isGaming = guardRes.body.content?.[0]?.text?.trim().toUpperCase() === "YES";
+      if (!isGaming) {
+        console.log(`   🎯 Skipped reply — AI confirmed post is not gaming content`);
+        return null;
+      }
+    } catch {}
   }
 
   const personaInstructions = {
@@ -1306,8 +1358,7 @@ async function discoverNewTerms(token, stats) {
            "rocket", "halo", "cod", "battlefield", "steam", "indie"].some(g => tagWord.includes(g));
 
         if (!isGamingRelated) continue;
-        if (containsFilteredTag(clean, NSFW_TAGS)) continue;
-        if (containsFilteredTag(clean, POLITICAL_TAGS)) continue;
+        if (isFilteredContent(clean)) continue;
 
         hashtagCounts[tag] = (hashtagCounts[tag] || 0) + 1;
       }
@@ -1995,7 +2046,7 @@ async function run() {
       if (postText.length < 5) continue;
 
       if (isNSFW(post)) {
-        const keyword = findFilteredTag(postText, NSFW_TAGS) || findFilteredTag(postText, POLITICAL_TAGS);
+        const keyword = findFilteredTag(postText, getNsfwTags()) || findFilteredTag(postText, getPoliticalTags());
         console.log(`   🚫 Skipped filtered post (NSFW/political) by @${post.author?.handle}${keyword ? ` [${keyword}]` : ""}`);
         if (authorDid) autoBlock(authorDid, `NSFW/political post content${keyword ? `: ${keyword}` : ""}`, stats, post.author?.handle, following, did, token, blockList);
         continue;
