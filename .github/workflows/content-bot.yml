@@ -1,0 +1,30 @@
+name: Content Bot
+
+on:
+  schedule:
+    - cron: '0 23 * * *'   # 6pm CST (UTC-6) — first post
+    - cron: '0 3 * * *'    # 9pm CST (UTC-6) — second post
+  workflow_dispatch:        # manual trigger for testing
+
+jobs:
+  post-content:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run content bot
+        env:
+          BLUESKY_HANDLE:      ${{ secrets.BLUESKY_HANDLE }}
+          BLUESKY_PASSWORD:    ${{ secrets.BLUESKY_PASSWORD }}
+          ANTHROPIC_API_KEY:   ${{ secrets.ANTHROPIC_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GIST_TOKEN:          ${{ secrets.GIST_TOKEN }}
+          GIST_ID:             ${{ secrets.GIST_ID }}
+          STEAM_API_KEY:       ${{ secrets.STEAM_API_KEY }}
+        run: node content_bot.js
