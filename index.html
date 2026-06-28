@@ -685,6 +685,20 @@
       </div>
     </div>
 
+    <!-- Reply Engagement by Persona × Game -->
+    <div class="panel" style="margin-bottom:16px;">
+      <div class="panel-header">
+        <span class="panel-title">Reply Engagement</span>
+        <span style="font-size:11px;color:var(--muted);">Persona × Game</span>
+      </div>
+      <div class="panel-body" style="padding:0;">
+        <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;padding:10px 20px;border-bottom:1px solid var(--border);color:var(--muted);letter-spacing:1px;font-size:10px;text-transform:uppercase;">
+          <span>Persona / Game</span><span>Sent</span><span>Liked</span><span>Like Rate</span>
+        </div>
+        <div id="reply-engagement-rows" style="color:var(--muted);padding:14px 20px;font-size:11px;">Loading...</div>
+      </div>
+    </div>
+
     <!-- Trimmed Terms -->
     <div class="panel" style="margin-bottom:16px;">
       <div class="panel-header">
@@ -702,6 +716,7 @@
     </div>
 
   </div><!-- /tab-engagement -->
+
 
   <!-- TAB: Controls -->
   <div class="tab-pane" id="tab-controls">
@@ -1424,6 +1439,53 @@
   }
 
   loadTrimmedTerms();
+
+  // ── Reply engagement by persona × game ───────────────────
+  async function loadReplyEngagement() {
+    const rows = document.getElementById("reply-engagement-rows");
+    if (!rows) return;
+    const data = await fetchGistFile("stats.json");
+    const pgStats = data?.replyPersonaGameStats;
+    if (!pgStats || Object.keys(pgStats).length === 0) {
+      rows.innerHTML = `<div style="padding:14px 20px;font-size:11px;color:var(--muted);">No reply engagement data yet — data accumulates as the bot sends replies.</div>`;
+      return;
+    }
+
+    // Sort by like rate descending, then by sent count
+    const entries = Object.entries(pgStats)
+      .filter(([, d]) => d.sent > 0)
+      .map(([key, d]) => ({
+        key,
+        persona: d.persona,
+        game: d.game,
+        sent: d.sent,
+        gotLiked: d.gotLiked || 0,
+        gotReplied: d.gotReplied || 0,
+        likeRate: d.sent > 0 ? ((d.gotLiked || 0) / d.sent * 100) : 0,
+      }))
+      .sort((a, b) => b.likeRate - a.likeRate || b.sent - a.sent);
+
+    if (entries.length === 0) {
+      rows.innerHTML = `<div style="padding:14px 20px;font-size:11px;color:var(--muted);">No reply engagement data yet.</div>`;
+      return;
+    }
+
+    const personaColor = { hype: "var(--accent2)", analytical: "var(--accent)", friendly: "var(--green)" };
+
+    rows.innerHTML = entries.map((e, i) => {
+      const likeRateStr = `${e.likeRate.toFixed(0)}%`;
+      const likeRateColor = e.likeRate >= 50 ? "var(--green)" : e.likeRate >= 25 ? "var(--yellow)" : "var(--accent2)";
+      const color = personaColor[e.persona] || "var(--text)";
+      return `<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;padding:9px 20px;border-bottom:1px solid var(--border);${i === entries.length - 1 ? "border-bottom:none;" : ""}">
+        <span><span style="color:${color};text-transform:capitalize;">${e.persona}</span> <span style="color:var(--muted);">/ ${e.game}</span></span>
+        <span style="color:var(--text);">${e.sent}</span>
+        <span style="color:var(--text);">${e.gotLiked}</span>
+        <span style="color:${likeRateColor};font-weight:bold;">${likeRateStr}</span>
+      </div>`;
+    }).join("");
+  }
+
+  loadReplyEngagement();
 
   // ── Search terms for manual trigger ─────────────────────
   const DEFAULT_TERMS = [
