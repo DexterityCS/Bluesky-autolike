@@ -109,9 +109,15 @@ function getDefaultContentStats() {
   };
 }
 
-async function saveContentStats(stats) {
+async function saveContentStats(stats, gamesList = null) {
   if (!GIST_TOKEN || !GIST_ID) return;
   try {
+    const files = {
+      "content_stats.json": { content: JSON.stringify(stats, null, 2) },
+    };
+    if (gamesList !== null) {
+      files["incremental_games.json"] = { content: JSON.stringify(gamesList, null, 2) };
+    }
     await request({
       hostname: "api.github.com",
       path: `/gists/${GIST_ID}`,
@@ -122,11 +128,7 @@ async function saveContentStats(stats) {
         "User-Agent": "dexteritycs-bot",
         "X-GitHub-Api-Version": "2022-11-28",
       },
-    }, JSON.stringify({
-      files: {
-        "content_stats.json": { content: JSON.stringify(stats, null, 2) },
-      },
-    }));
+    }, JSON.stringify({ files }));
     console.log("📡 Content stats saved to Gist");
   } catch (e) {
     console.warn(`Gist save failed: ${e.message}`);
@@ -413,7 +415,6 @@ async function run() {
   const newCompletion = await checkSteamCompletions(contentStats);
 
   if (newCompletion) {
-    // Post celebration immediately
     console.log(`🎉 Posting Steam 100% celebration for "${newCompletion.name}"`);
     const postText = await generateContent("steam_completion", { game: newCompletion.name });
     if (postText) {
@@ -423,9 +424,16 @@ async function run() {
       contentStats.totalPosts = (contentStats.totalPosts || 0) + 1;
       contentStats.lastPostAt = new Date().toISOString();
       contentStats.lastPostType = "steam_completion";
-      await saveContentStats(contentStats);
+
+      // Auto-add to incremental games list so future posts can include genuine thoughts
+      if (!INCREMENTAL_GAMES.includes(newCompletion.name)) {
+        INCREMENTAL_GAMES.push(newCompletion.name);
+        console.log(`📝 Auto-added "${newCompletion.name}" to incremental games list in Gist`);
+        await saveContentStats(contentStats, INCREMENTAL_GAMES);
+      } else {
+        await saveContentStats(contentStats);
+      }
     }
-    // Don't also post regular content — one post per run
     return;
   }
 
