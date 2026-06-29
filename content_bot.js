@@ -41,8 +41,18 @@ let INCREMENTAL_GAMES = [];
 // Only celebrate completions unlocked after this date (when bot was set up)
 // Prevents posting about games completed before the content bot existed
 const COMPLETION_CUTOFF = new Date("2026-06-28T00:00:00.000Z");
-// Steam completion check always runs first and overrides if found
-const CONTENT_TYPES = ["cs2", "cs2", "cs2", "ow2", "ow2", "incremental", "incremental"];
+
+// ── Content rotation — built dynamically from weights ─────
+const DEFAULT_WEIGHTS = { cs2: 3, ow2: 2, incremental: 2 };
+
+function buildContentTypes(weights) {
+  const w = { ...DEFAULT_WEIGHTS, ...weights };
+  const types = [];
+  for (const [type, count] of Object.entries(w)) {
+    for (let i = 0; i < Math.max(1, count); i++) types.push(type);
+  }
+  return types;
+}
 
 // ── HTTP ──────────────────────────────────────────────────
 function request(options, body = null) {
@@ -101,12 +111,17 @@ async function fetchContentStats() {
 
 function getDefaultContentStats() {
   return {
-    lastPostType: null,
-    lastPostAt: null,
-    celebratedGames: [],      // Steam app IDs already celebrated
-    postedIncrementals: [],   // game names already posted about
-    rotationIndex: 0,
-    totalPosts: 0,
+    lastPostType:       null,
+    lastPostAt:         null,
+    celebratedGames:    [],
+    postedIncrementals: [],
+    rotationIndex:      0,
+    totalPosts:         0,
+    sentPosts:          [],       // track URIs for engagement checking
+    typeWeights:        { cs2: 3, ow2: 2, incremental: 2 }, // adjustable weights
+    typeEngagement:     { cs2: { likes: 0, reposts: 0, posts: 0 },
+                          ow2: { likes: 0, reposts: 0, posts: 0 },
+                          incremental: { likes: 0, reposts: 0, posts: 0 } },
   };
 }
 
@@ -435,7 +450,174 @@ async function postCompletionToDiscord(completion, postText, bskyPostUri) {
   }
 }
 
-// ── Main ──────────────────────────────────────────────────
+// ── Check engagement on previously sent posts ─────────────
+const ENGAGEMENT_CHECK_HOURS = 48;
+const NOTABLE_LIKES           = 3;
+const NOTABLE_REPOSTS         = 1;
+
+async function checkPostEngagement(token, did, contentStats) {
+  if (!contentStats.sentPosts?.length) return;
+
+  const cutoff = Date.now() - (ENGAGEMENT_CHECK_HOURS * 3600000);
+  const active = contentStats.sentPosts.filter(p => new Date(p.sentAt).getTime() > cutoff);
+  const unchecked = active.filter(p => !p.finalChecked);
+  if (!unchecked.length) return;
+
+  console.log(`📊 Checking engagement on ${unchecked.length} recent post(s)...`);
+
+  let newNotable = [];
+
+  for (const post of unchecked) {
+    try {
+      const res = await request({
+        hostname: "bsky.social",
+        path: `/xrpc/app.bsky.feed.getPosts?uris=${encodeURIComponent(post.uri)}`,
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+      });
+      if (res.status !== 200 || !res.body.posts?.length) continue;
+
+      const bskyPost  = res.body.posts[0];
+      const likes     = bskyPost.likeCount   || 0;
+      const reposts   = bskyPost.repostCount || 0;
+      const replies   = bskyPost.replyCount  || 0;
+      const prevLikes   = post.lastLikes   || 0;
+      const prevReposts = post.lastReposts || 0;
+
+      // Update running totals
+      post.lastLikes   = likes;
+      post.lastReposts = reposts;
+      post.lastReplies = replies;
+      post.lastChecked = new Date().toISOString();
+
+      // Accumulate engagement per type
+      const type = post.type;
+      if (type && contentStats.typeEngagement?.[type]) {
+        const newLikes   = likes   - prevLikes;
+        const newReposts = reposts - prevReposts;
+        if (newLikes > 0)   contentStats.typeEngagement[type].likes   += newLikes;
+        if (newReposts > 0) contentStats.typeEngagement[type].reposts += newReposts;
+      }
+
+      // Mark as final if past the 48-hour window
+      const ageHours = (Date.now() - new Date(post.sentAt).getTime()) / 3600000;
+      if (ageHours >= ENGAGEMENT_CHECK_HOURS) post.finalChecked = true;
+
+      // Check if notable
+      if (likes >= NOTABLE_LIKES || reposts >= NOTABLE_REPOSTS) {
+        const alreadyNotified = post.notified;
+        if (!alreadyNotified) {
+          post.notified = true;
+          newNotable.push({ post, likes, reposts, replies });
+        }
+      }
+    } catch (e) {
+      console.warn(`Engagement check failed for post: ${e.message}`);
+    }
+    await sleep(300);
+  }
+
+  // Prune posts older than 48 hours that are fully checked
+  contentStats.sentPosts = active.filter(p => !p.finalChecked || !p.notified);
+  if (contentStats.sentPosts.length > 50) contentStats.sentPosts = contentStats.sentPosts.slice(-50);
+
+  // Post notable engagement to Discord
+  for (const { post, likes, reposts, replies } of newNotable) {
+    if (!DISCORD_WEBHOOK_URL) continue;
+    try {
+      const bskyUrl = post.uri
+        ? `https://bsky.app/profile/dexteritycs.bsky.social/post/${post.uri.split("/").pop()}`
+        : null;
+      const url = new URL(DISCORD_WEBHOOK_URL);
+      await request({
+        hostname: url.hostname,
+        path: url.pathname + url.search,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      }, JSON.stringify({
+        embeds: [{
+          title: "🔥 Notable Post Engagement!",
+          color: 0x00ff88,
+          description: `"${post.text?.slice(0, 200) || "—"}"`,
+          fields: [
+            { name: "❤️ Likes",    value: String(likes),   inline: true },
+            { name: "🔁 Reposts",  value: String(reposts), inline: true },
+            { name: "💬 Replies",  value: String(replies), inline: true },
+            { name: "📝 Type",     value: post.type || "—", inline: true },
+            ...(bskyUrl ? [{ name: "🦋 View Post", value: `[Open](${bskyUrl})`, inline: true }] : []),
+          ],
+          footer: { text: `dexterityCS Content Bot` },
+          timestamp: new Date().toISOString(),
+        }]
+      }));
+      console.log(`🔥 Notable engagement posted to Discord — ${likes} likes, ${reposts} reposts`);
+    } catch (e) {
+      console.warn(`Discord notable engagement failed: ${e.message}`);
+    }
+  }
+}
+
+// ── Adjust content rotation weights based on engagement ───
+function adjustContentWeights(contentStats) {
+  const eng = contentStats.typeEngagement;
+  if (!eng) return;
+
+  const types = ["cs2", "ow2", "incremental"];
+  const scores = {};
+
+  for (const type of types) {
+    const data = eng[type] || { likes: 0, reposts: 0, posts: 0 };
+    if (data.posts < 3) {
+      // Not enough data yet — keep default weight
+      scores[type] = contentStats.typeWeights?.[type] || (type === "cs2" ? 3 : 2);
+      continue;
+    }
+    // Score = (likes + reposts * 2) per post — reposts weighted higher
+    const perPost = (data.likes + data.reposts * 2) / data.posts;
+    scores[type] = perPost;
+  }
+
+  // Normalize scores to weights between 1 and 5
+  const total = Object.values(scores).reduce((a, b) => a + b, 0);
+  if (total === 0) return;
+
+  const newWeights = {};
+  for (const type of types) {
+    // Scale to range 1-5, minimum 1 so no type is fully starved
+    newWeights[type] = Math.max(1, Math.round((scores[type] / total) * 10));
+  }
+
+  const changed = JSON.stringify(newWeights) !== JSON.stringify(contentStats.typeWeights);
+  if (changed) {
+    console.log(`⚖️  Adjusted content weights: CS2=${newWeights.cs2} OW2=${newWeights.ow2} Incremental=${newWeights.incremental}`);
+    contentStats.typeWeights = newWeights;
+
+    if (DISCORD_WEBHOOK_URL) {
+      const url = new URL(DISCORD_WEBHOOK_URL);
+      request({
+        hostname: url.hostname,
+        path: url.pathname + url.search,
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      }, JSON.stringify({
+        embeds: [{
+          title: "⚖️ Content Rotation Weights Adjusted",
+          color: 0xff8c1e,
+          fields: [
+            { name: "🎮 CS2",         value: `${newWeights.cs2}x`,         inline: true },
+            { name: "🏥 OW2",         value: `${newWeights.ow2}x`,         inline: true },
+            { name: "🎲 Incremental", value: `${newWeights.incremental}x`, inline: true },
+          ],
+          description: "Weights auto-adjusted based on post engagement over last 10+ posts.",
+          footer: { text: `dexterityCS Content Bot` },
+        }]
+      })).catch(() => {});
+    }
+  }
+}
 async function run() {
   if (!BLUESKY_HANDLE || !BLUESKY_PASSWORD) {
     console.error("❌ Missing BLUESKY_HANDLE or BLUESKY_PASSWORD");
@@ -450,6 +632,12 @@ async function run() {
 
   const contentStats = await fetchContentStats();
   const { token, did } = await login();
+
+  // ── Check engagement on previous posts ───────────────────
+  await checkPostEngagement(token, did, contentStats);
+
+  // ── Adjust weights based on accumulated engagement ───────
+  adjustContentWeights(contentStats);
 
   // ── Step 1: Check Steam for new 100% completions ─────────
   const newCompletion = await checkSteamCompletions(contentStats);
@@ -478,8 +666,9 @@ async function run() {
   }
 
   // ── Step 2: Post scheduled content ───────────────────────
+  const CONTENT_TYPES = buildContentTypes(contentStats.typeWeights);
   const type = CONTENT_TYPES[contentStats.rotationIndex % CONTENT_TYPES.length];
-  console.log(`📝 Posting ${type} content (rotation index ${contentStats.rotationIndex})`);
+  console.log(`📝 Posting ${type} content (rotation index ${contentStats.rotationIndex}, weights: CS2=${contentStats.typeWeights?.cs2 || 3} OW2=${contentStats.typeWeights?.ow2 || 2} Inc=${contentStats.typeWeights?.incremental || 2})`);
 
   let context = {};
   if (type === "incremental") {
@@ -502,8 +691,26 @@ async function run() {
     process.exit(1);
   }
 
-  await postToBluesky(postText, token, did);
+  const postResult = await postToBluesky(postText, token, did);
   await postDiscordNotification(type, postText, context);
+
+  // Track post for engagement feedback loop
+  if (!contentStats.sentPosts) contentStats.sentPosts = [];
+  contentStats.sentPosts.push({
+    uri:          postResult?.uri || null,
+    type,
+    text:         postText.slice(0, 200),
+    sentAt:       new Date().toISOString(),
+    lastLikes:    0,
+    lastReposts:  0,
+    lastReplies:  0,
+    notified:     false,
+    finalChecked: false,
+  });
+
+  // Track post count per type for weight adjustment
+  if (!contentStats.typeEngagement) contentStats.typeEngagement = { cs2: { likes: 0, reposts: 0, posts: 0 }, ow2: { likes: 0, reposts: 0, posts: 0 }, incremental: { likes: 0, reposts: 0, posts: 0 } };
+  if (contentStats.typeEngagement[type]) contentStats.typeEngagement[type].posts++;
 
   // Update stats
   contentStats.rotationIndex = (contentStats.rotationIndex + 1) % CONTENT_TYPES.length;
