@@ -633,11 +633,13 @@ async function run() {
   const contentStats = await fetchContentStats();
   const { token, did } = await login();
 
-  // ── Check engagement on previous posts ───────────────────
-  await checkPostEngagement(token, did, contentStats);
+  const steamCheckOnly = process.env.STEAM_CHECK_ONLY === "true";
 
-  // ── Adjust weights based on accumulated engagement ───────
-  adjustContentWeights(contentStats);
+  // ── Check engagement + adjust weights (skip in steam-check-only mode) ──
+  if (!steamCheckOnly) {
+    await checkPostEngagement(token, did, contentStats);
+    adjustContentWeights(contentStats);
+  }
 
   // ── Step 1: Check Steam for new 100% completions ─────────
   const newCompletion = await checkSteamCompletions(contentStats);
@@ -662,6 +664,13 @@ async function run() {
         await saveContentStats(contentStats);
       }
     }
+    return;
+  }
+
+  // In steam-check-only mode, stop here if no completion found
+  if (steamCheckOnly && !newCompletion) {
+    console.log("🎮 Steam check complete — no new completions this run");
+    await saveContentStats(contentStats);
     return;
   }
 
