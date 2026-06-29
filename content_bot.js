@@ -234,15 +234,23 @@ Be genuine and specific — not generic praise. Keep it under 280 chars.
 Include #IdleGames or #IncrementalGames and optionally the game name as a tag if it works.
 Output only the post text.`,
 
-    steam_completion: `You are Dexterity (@dexteritycs.bsky.social), a Twitch streamer who 100% completes incremental games on Steam.
+    steam_completion: `You are Dexterity (@dexteritycs.bsky.social), a Twitch streamer who 100% completes games on Steam.
 You just 100%'d all achievements in: "${context.game}"
 
-Write an excited but genuine celebration post. Mention:
+Write an excited but genuine celebration post. Include:
 - That you just got 100% achievements
 - Something brief and honest about the game
 - Keep the energy real, not cringe
 
-Under 280 chars. Include #Steam #IncrementalGames. Output only the post text.`,
+For hashtags: figure out what genre/type this game is and use 2-3 relevant hashtags. For example:
+- Incremental/idle/clicker games → #IncrementalGames #IdleGames
+- Puzzle games → #PuzzleGame #Steam
+- Action/adventure → #Gaming #Steam
+- Platformers → #Platformer #IndieGame
+- Horror → #HorrorGames #Steam
+- Always include #Steam
+
+Under 280 chars. Output only the post text.`,
   };
 
   const res = await request({
