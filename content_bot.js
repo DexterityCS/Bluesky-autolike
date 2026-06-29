@@ -251,14 +251,16 @@ Output only the post text.`,
 You just 100%'d all achievements in: "${context.game}"
 Completion date: ${context.completedAt ? new Date(context.completedAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "recently"}
 ${context.isNew ? "This was just completed." : "This was completed a while back — mention the date naturally."}
+${context.genres ? `Steam genres: ${context.genres}` : ""}
+${context.description ? `Game description: ${context.description.slice(0, 200)}` : ""}
 
 Write an excited but genuine celebration post. Include:
 - That you got 100% achievements
 - The completion date naturally worked into the post
-- Something brief and honest about the game
+- Something brief and honest about the game based on what it actually is
 - Keep the energy real, not cringe
 
-For hashtags: figure out what genre/type this game is and use 2-3 relevant hashtags. Always include #Steam.
+For hashtags: use the actual Steam genres above to pick 2-3 relevant hashtags. Always include #Steam.
 
 Under 280 chars. Output only the post text.`,
   };
@@ -702,10 +704,33 @@ async function run() {
 
   if (newCompletion) {
     console.log(`🎉 Posting Steam 100% celebration for "${newCompletion.name}"`);
+
+    // Fetch Steam store data for accurate genre info
+    let gameDescription = null;
+    let gameGenres = null;
+    try {
+      const storeRes = await request({
+        hostname: "store.steampowered.com",
+        path: `/api/appdetails?appids=${newCompletion.appid}&filters=basic,genres,short_description`,
+        method: "GET",
+        headers: { "User-Agent": "dexteritycs-bot" },
+      });
+      const appData = storeRes.body?.[newCompletion.appid]?.data;
+      if (appData) {
+        gameDescription = appData.short_description || null;
+        gameGenres      = appData.genres?.map(g => g.description).join(", ") || null;
+        console.log(`🎮 Game genres: ${gameGenres}`);
+      }
+    } catch (e) {
+      console.warn(`Steam store fetch failed: ${e.message}`);
+    }
+
     const postText = await generateContent("steam_completion", {
       game:        newCompletion.name,
       completedAt: newCompletion.completedAt,
       isNew:       newCompletion.isNew,
+      description: gameDescription,
+      genres:      gameGenres,
     });
     if (postText) {
       const bskyPost = await postToBluesky(postText, token, did);
