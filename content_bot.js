@@ -342,9 +342,10 @@ async function checkSteamCompletions(contentStats) {
 
           console.log(`🏆 New 100%! ${game.name} (${total} achievements, completed ${lastUnlockDate.toLocaleDateString()})`);
           return {
-            appid: String(game.appid),
-            name: game.name,
+            appid:        String(game.appid),
+            name:         game.name,
             achievements: total,
+            playtime:     game.playtime_forever, // in minutes
           };
         }
       } catch (e) {
@@ -392,6 +393,48 @@ async function postDiscordNotification(type, text, context = {}, webhookOverride
   }
 }
 
+async function postCompletionToDiscord(completion, postText, bskyPostUri) {
+  if (!DISCORD_COMPLETION_WEBHOOK_URL) return;
+  try {
+    const playtimeHours = completion.playtime
+      ? `${Math.floor(completion.playtime / 60)}h ${completion.playtime % 60}m`
+      : null;
+    const steamUrl    = `https://store.steampowered.com/app/${completion.appid}`;
+    const thumbnailUrl = `https://cdn.akamai.steamstatic.com/steam/apps/${completion.appid}/header.jpg`;
+    const bskyUrl     = bskyPostUri
+      ? `https://bsky.app/profile/dexteritycs.bsky.social/post/${bskyPostUri.split("/").pop()}`
+      : null;
+
+    const fields = [
+      { name: "🏅 Achievements", value: `${completion.achievements} / ${completion.achievements}`, inline: true },
+    ];
+    if (playtimeHours) fields.push({ name: "⏱️ Playtime", value: playtimeHours, inline: true });
+    if (bskyUrl) fields.push({ name: "🦋 Bluesky Post", value: `[View Post](${bskyUrl})`, inline: true });
+    fields.push({ name: "🎮 Steam Page", value: `[${completion.name}](${steamUrl})`, inline: false });
+
+    const url = new URL(DISCORD_COMPLETION_WEBHOOK_URL);
+    await request({
+      hostname: url.hostname,
+      path: url.pathname + url.search,
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    }, JSON.stringify({
+      embeds: [{
+        title: `🏆 100% — ${completion.name}`,
+        color: 0xffd600,
+        description: `"${postText}"`,
+        thumbnail: { url: thumbnailUrl },
+        fields,
+        footer: { text: `dexterityCS • Steam Completions` },
+        timestamp: new Date().toISOString(),
+      }]
+    }));
+    console.log("📨 Completion embed posted to Discord");
+  } catch (e) {
+    console.warn(`Discord completion notification failed: ${e.message}`);
+  }
+}
+
 // ── Main ──────────────────────────────────────────────────
 async function run() {
   if (!BLUESKY_HANDLE || !BLUESKY_PASSWORD) {
@@ -415,14 +458,14 @@ async function run() {
     console.log(`🎉 Posting Steam 100% celebration for "${newCompletion.name}"`);
     const postText = await generateContent("steam_completion", { game: newCompletion.name });
     if (postText) {
-      await postToBluesky(postText, token, did);
-      await postDiscordNotification("steam_completion", postText, { game: newCompletion.name }, DISCORD_COMPLETION_WEBHOOK_URL);
+      const bskyPost = await postToBluesky(postText, token, did);
+      const bskyUri  = bskyPost?.uri || null;
+      await postCompletionToDiscord(newCompletion, postText, bskyUri);
       contentStats.celebratedGames.push(newCompletion.appid);
-      contentStats.totalPosts = (contentStats.totalPosts || 0) + 1;
-      contentStats.lastPostAt = new Date().toISOString();
-      contentStats.lastPostType = "steam_completion";
+      contentStats.totalPosts    = (contentStats.totalPosts || 0) + 1;
+      contentStats.lastPostAt    = new Date().toISOString();
+      contentStats.lastPostType  = "steam_completion";
 
-      // Auto-add to incremental games list so future posts can include genuine thoughts
       if (!INCREMENTAL_GAMES.includes(newCompletion.name)) {
         INCREMENTAL_GAMES.push(newCompletion.name);
         console.log(`📝 Auto-added "${newCompletion.name}" to incremental games list in Gist`);
