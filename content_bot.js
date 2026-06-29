@@ -290,15 +290,15 @@ async function checkSteamCompletions(contentStats) {
 
     // Check games with playtime that haven't been celebrated yet
     // Only check games actually played (playtime > 0)
-    const candidates = games.filter(g =>
-      g.playtime_forever > 0 &&
-      !celebrated.has(String(g.appid))
-    );
+    // Sort by most recently played so fresh completions are checked first
+    const candidates = games
+      .filter(g => g.playtime_forever > 0 && !celebrated.has(String(g.appid)))
+      .sort((a, b) => (b.rtime_last_played || 0) - (a.rtime_last_played || 0));
 
     console.log(`🎮 Checking ${candidates.length} played games for 100% completion...`);
 
-    // Check up to 5 candidates per run to avoid rate limiting
-    const toCheck = candidates.slice(0, 5);
+    // Check up to 20 candidates per run, prioritizing recently played
+    const toCheck = candidates.slice(0, 20);
 
     for (const game of toCheck) {
       await sleep(500); // Steam rate limit buffer
