@@ -10,7 +10,8 @@ const fs    = require("fs");
 const BLUESKY_HANDLE    = process.env.BLUESKY_HANDLE;
 const BLUESKY_PASSWORD  = process.env.BLUESKY_PASSWORD;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || null;
+const DISCORD_WEBHOOK_URL            = process.env.DISCORD_WEBHOOK_URL || null;
+const DISCORD_COMPLETION_WEBHOOK_URL = process.env.DISCORD_COMPLETION_WEBHOOK_URL || DISCORD_WEBHOOK_URL;
 const GIST_TOKEN        = process.env.GIST_TOKEN || null;
 const GIST_ID           = process.env.GIST_ID || "9e21611814d0c5b84c94a9bc15ed21fa";
 const STEAM_API_KEY     = process.env.STEAM_API_KEY || null;
@@ -352,8 +353,9 @@ async function checkSteamCompletions(contentStats) {
 }
 
 // ── Discord notification ──────────────────────────────────
-async function postDiscordNotification(type, text, context = {}) {
-  if (!DISCORD_WEBHOOK_URL) return;
+async function postDiscordNotification(type, text, context = {}, webhookOverride = null) {
+  const webhookUrl = webhookOverride || DISCORD_WEBHOOK_URL;
+  if (!webhookUrl) return;
   try {
     const configs = {
       cs2:              { title: "🎮 CS2 Post Published",              color: 0x00e5ff },
@@ -362,7 +364,7 @@ async function postDiscordNotification(type, text, context = {}) {
       steam_completion: { title: "🏆 Steam 100% Celebration Posted!",  color: 0xffd600 },
     };
     const cfg = configs[type] || { title: "📝 Content Posted", color: 0x00e5ff };
-    const url = new URL(DISCORD_WEBHOOK_URL);
+    const url = new URL(webhookUrl);
     await request({
       hostname: url.hostname,
       path: url.pathname + url.search,
@@ -406,7 +408,7 @@ async function run() {
     const postText = await generateContent("steam_completion", { game: newCompletion.name });
     if (postText) {
       await postToBluesky(postText, token, did);
-      await postDiscordNotification("steam_completion", postText, { game: newCompletion.name });
+      await postDiscordNotification("steam_completion", postText, { game: newCompletion.name }, DISCORD_COMPLETION_WEBHOOK_URL);
       contentStats.celebratedGames.push(newCompletion.appid);
       contentStats.totalPosts = (contentStats.totalPosts || 0) + 1;
       contentStats.lastPostAt = new Date().toISOString();
