@@ -1,0 +1,31 @@
+name: Steam Completion Check
+
+on:
+  schedule:
+    - cron: '0 * * * *'   # every hour
+  workflow_dispatch:
+
+jobs:
+  check-completions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check Steam completions
+        env:
+          BLUESKY_HANDLE:      ${{ secrets.BLUESKY_HANDLE }}
+          BLUESKY_PASSWORD:    ${{ secrets.BLUESKY_PASSWORD }}
+          ANTHROPIC_API_KEY:   ${{ secrets.ANTHROPIC_API_KEY }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GIST_TOKEN:          ${{ secrets.GIST_TOKEN }}
+          GIST_ID:             ${{ secrets.GIST_ID }}
+          STEAM_API_KEY:       ${{ secrets.STEAM_API_KEY }}
+          STEAM_CHECK_ONLY:                 "true"
+          DISCORD_COMPLETION_WEBHOOK_URL: ${{ secrets.DISCORD_COMPLETION_WEBHOOK_URL }}
+        run: node content_bot.js
