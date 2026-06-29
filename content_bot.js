@@ -331,19 +331,6 @@ async function checkSteamCompletions(contentStats) {
             continue;
           }
 
-          // Only celebrate if it's a known incremental game
-          const nameClean = game.name.toLowerCase().replace(/[^a-z0-9\s]/g, "");
-          const isIncremental = INCREMENTAL_GAMES.some(ig => {
-            const igClean = ig.toLowerCase().replace(/[^a-z0-9\s]/g, "");
-            return nameClean.includes(igClean) || igClean.includes(nameClean);
-          });
-
-          if (!isIncremental) {
-            console.log(`   ⏭️  Skipped ${game.name} — not in incremental games list`);
-            contentStats.celebratedGames.push(String(game.appid));
-            continue;
-          }
-
           console.log(`🏆 New 100%! ${game.name} (${total} achievements, completed ${lastUnlockDate.toLocaleDateString()})`);
           return {
             appid: String(game.appid),
