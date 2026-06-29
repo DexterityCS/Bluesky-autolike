@@ -40,8 +40,6 @@ let INCREMENTAL_GAMES = [];
 
 // Only celebrate completions unlocked after this date (when bot was set up)
 // Prevents posting about games completed before the content bot existed
-const COMPLETION_CUTOFF = new Date("2026-06-28T00:00:00.000Z");
-
 // ── Content rotation — built dynamically from weights ─────
 const DEFAULT_WEIGHTS = { cs2: 3, ow2: 2, incremental: 2 };
 
@@ -251,19 +249,16 @@ Output only the post text.`,
 
     steam_completion: `You are Dexterity (@dexteritycs.bsky.social), a Twitch streamer who 100% completes games on Steam.
 You just 100%'d all achievements in: "${context.game}"
+Completion date: ${context.completedAt ? new Date(context.completedAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "recently"}
+${context.isNew ? "This was just completed." : "This was completed a while back — mention the date naturally."}
 
 Write an excited but genuine celebration post. Include:
-- That you just got 100% achievements
+- That you got 100% achievements
+- The completion date naturally worked into the post
 - Something brief and honest about the game
 - Keep the energy real, not cringe
 
-For hashtags: figure out what genre/type this game is and use 2-3 relevant hashtags. For example:
-- Incremental/idle/clicker games → #IncrementalGames #IdleGames
-- Puzzle games → #PuzzleGame #Steam
-- Action/adventure → #Gaming #Steam
-- Platformers → #Platformer #IndieGame
-- Horror → #HorrorGames #Steam
-- Always include #Steam
+For hashtags: figure out what genre/type this game is and use 2-3 relevant hashtags. Always include #Steam.
 
 Under 280 chars. Output only the post text.`,
   };
@@ -296,7 +291,6 @@ async function checkSteamCompletions(contentStats) {
   }
 
   try {
-    // Get all owned games with playtime
     const gamesRes = await request({
       hostname: "api.steampowered.com",
       path: `/IPlayerService/GetOwnedGames/v1/?key=${STEAM_API_KEY}&steamid=${STEAM_ID}&include_appinfo=true&include_played_free_games=true`,
@@ -309,23 +303,27 @@ async function checkSteamCompletions(contentStats) {
       return null;
     }
 
-    const games = gamesRes.body.response.games;
+    const games     = gamesRes.body.response.games;
     const celebrated = new Set(contentStats.celebratedGames || []);
 
-    // Check games with playtime that haven't been celebrated yet
-    // Only check games actually played (playtime > 0)
-    // Sort by most recently played so fresh completions are checked first
+    // Include ALL games (free and paid) that haven't been celebrated yet
+    // Sort by most recently played — brand new completions float to top
     const candidates = games
-      .filter(g => g.playtime_forever > 0 && !celebrated.has(String(g.appid)))
+      .filter(g => !celebrated.has(String(g.appid)))
       .sort((a, b) => (b.rtime_last_played || 0) - (a.rtime_last_played || 0));
 
-    console.log(`🎮 Checking ${candidates.length} played games for 100% completion...`);
+    console.log(`🎮 Checking ${candidates.length} games for 100% completion...`);
 
-    // Check up to 20 candidates per run, prioritizing recently played
-    const toCheck = candidates.slice(0, 20);
+    // First pass — check top 20 most recently played for NEW completions
+    const recentToCheck = candidates.slice(0, 20);
+    let newCompletion   = null;
+    let historicalPool  = []; // 100%'d games that aren't brand new
 
-    for (const game of toCheck) {
-      await sleep(500); // Steam rate limit buffer
+    const NOW = Date.now();
+    const NEW_THRESHOLD_DAYS = 3; // completed within last 3 days = "new"
+
+    for (const game of recentToCheck) {
+      await sleep(400);
       try {
         const achRes = await request({
           hostname: "api.steampowered.com",
@@ -335,40 +333,59 @@ async function checkSteamCompletions(contentStats) {
         });
 
         if (achRes.status !== 200 || !achRes.body.playerstats?.achievements) continue;
-
         const achievements = achRes.body.playerstats.achievements;
-        if (achievements.length === 0) continue; // no achievements in this game
+        if (achievements.length === 0) continue;
 
         const total    = achievements.length;
         const unlocked = achievements.filter(a => a.achieved === 1).length;
+        if (unlocked !== total || unlocked === 0) continue;
 
-        if (unlocked === total && unlocked > 0) {
-          // Check when the last achievement was unlocked
-          const lastUnlockTime = Math.max(...achievements
-            .filter(a => a.achieved === 1 && a.unlocktime)
-            .map(a => a.unlocktime * 1000));
-          const lastUnlockDate = new Date(lastUnlockTime);
+        const lastUnlockTime = Math.max(...achievements
+          .filter(a => a.achieved === 1 && a.unlocktime)
+          .map(a => a.unlocktime * 1000));
+        const lastUnlockDate = new Date(lastUnlockTime);
+        const daysAgo = (NOW - lastUnlockTime) / 86400000;
 
-          if (lastUnlockDate < COMPLETION_CUTOFF) {
-            console.log(`   ⏭️  Skipped ${game.name} — completed before cutoff (${lastUnlockDate.toLocaleDateString()})`);
-            contentStats.celebratedGames.push(String(game.appid));
-            continue;
-          }
-
-          console.log(`🏆 New 100%! ${game.name} (${total} achievements, completed ${lastUnlockDate.toLocaleDateString()})`);
-          return {
+        if (daysAgo <= NEW_THRESHOLD_DAYS) {
+          // Brand new completion — post immediately
+          console.log(`🏆 Brand new 100%! ${game.name} (${total} achievements, completed ${lastUnlockDate.toLocaleDateString()})`);
+          newCompletion = {
             appid:        String(game.appid),
             name:         game.name,
             achievements: total,
-            playtime:     game.playtime_forever, // in minutes
+            playtime:     game.playtime_forever,
+            completedAt:  lastUnlockDate,
+            isNew:        true,
           };
+          break;
+        } else {
+          // Historical completion — add to pool for pacing
+          historicalPool.push({
+            appid:        String(game.appid),
+            name:         game.name,
+            achievements: total,
+            playtime:     game.playtime_forever,
+            completedAt:  lastUnlockDate,
+            isNew:        false,
+          });
         }
       } catch (e) {
         console.warn(`Achievement check failed for ${game.name}: ${e.message}`);
       }
     }
 
-    console.log("No new 100% completions found this run");
+    // Return new completion immediately if found
+    if (newCompletion) return newCompletion;
+
+    // Otherwise return the oldest historical completion (pace them out oldest-first)
+    if (historicalPool.length > 0) {
+      historicalPool.sort((a, b) => a.completedAt - b.completedAt);
+      const historical = historicalPool[0];
+      console.log(`📜 Historical 100%: ${historical.name} (completed ${historical.completedAt.toLocaleDateString()})`);
+      return historical;
+    }
+
+    console.log("No uncelebrated 100% completions found this run");
     return null;
   } catch (e) {
     console.warn(`Steam check error: ${e.message}`);
@@ -646,7 +663,11 @@ async function run() {
 
   if (newCompletion) {
     console.log(`🎉 Posting Steam 100% celebration for "${newCompletion.name}"`);
-    const postText = await generateContent("steam_completion", { game: newCompletion.name });
+    const postText = await generateContent("steam_completion", {
+      game:        newCompletion.name,
+      completedAt: newCompletion.completedAt,
+      isNew:       newCompletion.isNew,
+    });
     if (postText) {
       const bskyPost = await postToBluesky(postText, token, did);
       const bskyUri  = bskyPost?.uri || null;
