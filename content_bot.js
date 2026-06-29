@@ -293,7 +293,7 @@ async function checkSteamCompletions(contentStats) {
   try {
     const gamesRes = await request({
       hostname: "api.steampowered.com",
-      path: `/IPlayerService/GetOwnedGames/v1/?key=${STEAM_API_KEY}&steamid=${STEAM_ID}&include_appinfo=true&include_played_free_games=true`,
+      path: `/IPlayerService/GetOwnedGames/v1/?key=${STEAM_API_KEY}&steamid=${STEAM_ID}&include_appinfo=true&include_played_free_games=true&skip_unvetted_apps=0`,
       method: "GET",
       headers: { "User-Agent": "dexteritycs-bot" },
     });
@@ -303,14 +303,40 @@ async function checkSteamCompletions(contentStats) {
       return null;
     }
 
-    const games     = gamesRes.body.response.games;
+    const games     = gamesRes.body.response.games || [];
+    console.log(`📚 Steam returned ${games.length} games`);
+
+    // Cache the full library so we have a stable list across runs
+    if (!contentStats.gameLibrary || contentStats.gameLibrary.length < games.length) {
+      contentStats.gameLibrary = games.map(g => ({
+        appid: String(g.appid),
+        name: g.name || `App ${g.appid}`,
+        playtime: g.playtime_forever || 0,
+        rtime_last_played: g.rtime_last_played || 0,
+      }));
+      console.log(`💾 Cached ${contentStats.gameLibrary.length} games to Gist`);
+    } else {
+      // Merge any new games into existing cache
+      const existingIds = new Set(contentStats.gameLibrary.map(g => g.appid));
+      const newGames = games.filter(g => !existingIds.has(String(g.appid)));
+      if (newGames.length > 0) {
+        contentStats.gameLibrary.push(...newGames.map(g => ({
+          appid: String(g.appid),
+          name: g.name || `App ${g.appid}`,
+          playtime: g.playtime_forever || 0,
+          rtime_last_played: g.rtime_last_played || 0,
+        })));
+        console.log(`➕ Added ${newGames.length} new games to cached library`);
+      }
+    }
+
+    // Use cached library as the source of truth
+    const allGames = contentStats.gameLibrary;
     const celebrated  = new Set(contentStats.celebratedGames || []);
     const checkedGames = contentStats.checkedGames || {};
-    const recheckAfterDays = 7; // recheck incomplete games after 7 days
+    const recheckAfterDays = 7;
 
-    // Include ALL games that haven't been celebrated
-    // Skip recently checked incomplete games (recheck after 7 days in case you completed them)
-    const candidates = games
+    const candidates = allGames
       .filter(g => {
         if (celebrated.has(String(g.appid))) return false;
         const lastChecked = checkedGames[String(g.appid)];
