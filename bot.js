@@ -475,7 +475,7 @@ const GAMING_TERMS = [
   "game", "gameplay", "highlights", "clip", "play of the game",
 ];
 
-// ── Context exclusion — terms that indicate CS2 = Cities Skylines 2 ──
+// ── Context exclusion — terms that indicate CS2 ≠ Counter-Strike ──
 const CITIES_SKYLINES_TERMS = [
   "cities skylines", "city skylines", "zoning", "traffic flow", "city planning",
   "road layout", "urban planning", "city builder", "mayor", "downtown",
@@ -484,9 +484,26 @@ const CITIES_SKYLINES_TERMS = [
   "roundabout", "highway ramp", "city sprawl", "mass transit",
 ];
 
+// Other common uses of CS1/CS2/CS3 as sequel numbering
+const NON_CS_SEQUEL_PATTERNS = [
+  /\bcs1\b.*\bcs2\b/i,   // "CS1 and CS2" — sequel context
+  /\bcs2\b.*\bcs3\b/i,   // "CS2 and CS3"
+  /\bcs1\b.*\bcs3\b/i,   // "CS1 through CS3"
+  /\bcs[123]\b.*\bseries\b/i,  // "CS2 series"
+  /\bcs[123]\b.*\bbook\b/i,    // "CS2 book"
+  /\bcs[123]\b.*\balbum\b/i,   // "CS2 album"
+  /\bcs[123]\b.*\bchapter\b/i, // "CS2 chapter"
+  /\bcs[123]\b.*\bvolume\b/i,  // "CS2 volume"
+  /\bcs[123]\b.*\bpart\b/i,    // "CS2 part"
+  /\bcs[123]\b.*\bseason\b/i,  // "CS2 season"
+  /\bcs[123]\b.*\bepisode\b/i, // "CS2 episode"
+];
+
 function isCitiesSkylines(text) {
   const lower = text.toLowerCase();
-  return CITIES_SKYLINES_TERMS.some(term => lower.includes(term));
+  if (CITIES_SKYLINES_TERMS.some(term => lower.includes(term))) return true;
+  if (NON_CS_SEQUEL_PATTERNS.some(pattern => pattern.test(text))) return true;
+  return false;
 }
 
 function isGamingRelevant(post) {
@@ -720,7 +737,14 @@ async function generateReply(postText, authorHandle, persona = "friendly", token
         system: "You are a content classifier. Answer only YES or NO.",
         messages: [{
           role: "user",
-          content: `Is this post specifically about gaming, esports, or game streaming? Note: CS2 can mean Counter-Strike 2 OR Cities Skylines 2 — only answer YES if it's clearly about a shooter/FPS/action game, not a city builder. Answer only YES or NO.\n\n"${postText.slice(0, 300)}"`
+          content: `Is this post specifically about Counter-Strike 2 (the FPS game by Valve), esports, or game streaming? Answer only YES or NO.
+
+Important notes:
+- CS2 can mean Counter-Strike 2 OR Cities Skylines 2 — only YES if it's clearly Counter-Strike
+- CS1, CS2, CS3 used as sequel numbers (like book series, album names, seasons) are NOT Counter-Strike
+- If the post mentions CS2 alongside CS1 or CS3, it is almost certainly NOT Counter-Strike
+
+Post: "${postText.slice(0, 300)}"`
         }]
       });
       const guardRes = await request({
