@@ -389,7 +389,33 @@ async function checkSteamCompletions(contentStats) {
           continue;
         }
 
-        // 100% found!
+        // 100% found! Check store data for NSFW filter and genre info
+        let gameDescription = null;
+        let gameGenres      = null;
+        let isAdultOnly     = false;
+        try {
+          const storeRes = await request({
+            hostname: "store.steampowered.com",
+            path: `/api/appdetails?appids=${game.appid}&filters=basic,genres,short_description,content_descriptors`,
+            method: "GET",
+            headers: { "User-Agent": "dexteritycs-bot" },
+          });
+          const appData = storeRes.body?.[String(game.appid)]?.data;
+          if (appData) {
+            gameDescription = appData.short_description || null;
+            gameGenres      = appData.genres?.map(g => g.description).join(", ") || null;
+            const descriptorIds = appData.content_descriptors?.ids || [];
+            isAdultOnly = descriptorIds.includes(3) || descriptorIds.includes(4) ||
+                          (appData.required_age && parseInt(appData.required_age) >= 18);
+          }
+        } catch {}
+
+        if (isAdultOnly) {
+          console.log(`   🔞 Skipped ${game.name} — adult only content`);
+          contentStats.celebratedGames.push(String(game.appid)); // permanently skip
+          continue;
+        }
+
         const lastUnlockTime = Math.max(...achievements
           .filter(a => a.achieved === 1 && a.unlocktime)
           .map(a => a.unlocktime * 1000));
@@ -403,6 +429,8 @@ async function checkSteamCompletions(contentStats) {
           playtime:     game.playtime_forever,
           completedAt:  lastUnlockDate,
           isNew:        daysAgo <= NEW_THRESHOLD_DAYS,
+          description:  gameDescription,
+          genres:       gameGenres,
         };
 
         if (completion.isNew) {
@@ -704,33 +732,14 @@ async function run() {
 
   if (newCompletion) {
     console.log(`🎉 Posting Steam 100% celebration for "${newCompletion.name}"`);
-
-    // Fetch Steam store data for accurate genre info
-    let gameDescription = null;
-    let gameGenres = null;
-    try {
-      const storeRes = await request({
-        hostname: "store.steampowered.com",
-        path: `/api/appdetails?appids=${newCompletion.appid}&filters=basic,genres,short_description`,
-        method: "GET",
-        headers: { "User-Agent": "dexteritycs-bot" },
-      });
-      const appData = storeRes.body?.[newCompletion.appid]?.data;
-      if (appData) {
-        gameDescription = appData.short_description || null;
-        gameGenres      = appData.genres?.map(g => g.description).join(", ") || null;
-        console.log(`🎮 Game genres: ${gameGenres}`);
-      }
-    } catch (e) {
-      console.warn(`Steam store fetch failed: ${e.message}`);
-    }
+    if (newCompletion.genres) console.log(`🎮 Game genres: ${newCompletion.genres}`);
 
     const postText = await generateContent("steam_completion", {
       game:        newCompletion.name,
       completedAt: newCompletion.completedAt,
       isNew:       newCompletion.isNew,
-      description: gameDescription,
-      genres:      gameGenres,
+      description: newCompletion.description,
+      genres:      newCompletion.genres,
     });
     if (postText) {
       const bskyPost = await postToBluesky(postText, token, did);
