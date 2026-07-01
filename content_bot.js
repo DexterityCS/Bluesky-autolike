@@ -728,45 +728,58 @@ async function run() {
   }
 
   // ── Step 1: Check Steam for new 100% completions ─────────
-  const newCompletion = await checkSteamCompletions(contentStats);
+  // Skip if a completion was posted within the last 2 hours to prevent double-posting
+  const lastCompletionHoursAgo = contentStats.lastCompletionPostAt
+    ? (Date.now() - new Date(contentStats.lastCompletionPostAt).getTime()) / 3600000
+    : 999;
 
-  if (newCompletion) {
-    console.log(`🎉 Posting Steam 100% celebration for "${newCompletion.name}"`);
-    if (newCompletion.genres) console.log(`🎮 Game genres: ${newCompletion.genres}`);
+  if (lastCompletionHoursAgo < 2) {
+    console.log(`⏳ Skipping Steam check — completion posted ${lastCompletionHoursAgo.toFixed(1)}h ago (2h cooldown)`);
+  } else {
+    const newCompletion = await checkSteamCompletions(contentStats);
 
-    const postText = await generateContent("steam_completion", {
-      game:        newCompletion.name,
-      completedAt: newCompletion.completedAt,
-      isNew:       newCompletion.isNew,
-      description: newCompletion.description,
-      genres:      newCompletion.genres,
-    });
-    if (postText) {
-      const bskyPost = await postToBluesky(postText, token, did);
-      const bskyUri  = bskyPost?.uri || null;
-      await postCompletionToDiscord(newCompletion, postText, bskyUri);
-      contentStats.celebratedGames.push(newCompletion.appid);
-      contentStats.totalPosts    = (contentStats.totalPosts || 0) + 1;
-      contentStats.lastPostAt    = new Date().toISOString();
-      contentStats.lastPostType  = "steam_completion";
+    if (newCompletion) {
+      console.log(`🎉 Posting Steam 100% celebration for "${newCompletion.name}"`);
+      if (newCompletion.genres) console.log(`🎮 Game genres: ${newCompletion.genres}`);
 
-      if (!INCREMENTAL_GAMES.includes(newCompletion.name)) {
-        INCREMENTAL_GAMES.push(newCompletion.name);
-        console.log(`📝 Auto-added "${newCompletion.name}" to incremental games list in Gist`);
-        await saveContentStats(contentStats, INCREMENTAL_GAMES);
-      } else {
+      const postText = await generateContent("steam_completion", {
+        game:        newCompletion.name,
+        completedAt: newCompletion.completedAt,
+        isNew:       newCompletion.isNew,
+        description: newCompletion.description,
+        genres:      newCompletion.genres,
+      });
+      if (postText) {
+        const bskyPost = await postToBluesky(postText, token, did);
+        const bskyUri  = bskyPost?.uri || null;
+        await postCompletionToDiscord(newCompletion, postText, bskyUri);
+        contentStats.celebratedGames.push(newCompletion.appid);
+        contentStats.totalPosts           = (contentStats.totalPosts || 0) + 1;
+        contentStats.lastPostAt           = new Date().toISOString();
+        contentStats.lastPostType         = "steam_completion";
+        contentStats.lastCompletionPostAt = new Date().toISOString();
+
+        if (!INCREMENTAL_GAMES.includes(newCompletion.name)) {
+          INCREMENTAL_GAMES.push(newCompletion.name);
+          console.log(`📝 Auto-added "${newCompletion.name}" to incremental games list in Gist`);
+          await saveContentStats(contentStats, INCREMENTAL_GAMES);
+        } else {
+          await saveContentStats(contentStats);
+        }
+      }
+
+      if (steamCheckOnly) return;
+      // Fall through to regular content
+    } else {
+      if (steamCheckOnly) {
+        console.log("🎮 Steam check complete — no new completions this run");
         await saveContentStats(contentStats);
+        return;
       }
     }
-    return;
   }
 
-  // In steam-check-only mode, stop here if no completion found
-  if (steamCheckOnly && !newCompletion) {
-    console.log("🎮 Steam check complete — no new completions this run");
-    await saveContentStats(contentStats);
-    return;
-  }
+  if (steamCheckOnly) return;
 
   // ── Step 2: Post scheduled content ───────────────────────
   const CONTENT_TYPES = buildContentTypes(contentStats.typeWeights);
