@@ -489,14 +489,6 @@ const NON_CS_SEQUEL_PATTERNS = [
   /\bcs1\b.*\bcs2\b/i,   // "CS1 and CS2" — sequel context
   /\bcs2\b.*\bcs3\b/i,   // "CS2 and CS3"
   /\bcs1\b.*\bcs3\b/i,   // "CS1 through CS3"
-  /\bcs[123]\b.*\bseries\b/i,  // "CS2 series"
-  /\bcs[123]\b.*\bbook\b/i,    // "CS2 book"
-  /\bcs[123]\b.*\balbum\b/i,   // "CS2 album"
-  /\bcs[123]\b.*\bchapter\b/i, // "CS2 chapter"
-  /\bcs[123]\b.*\bvolume\b/i,  // "CS2 volume"
-  /\bcs[123]\b.*\bpart\b/i,    // "CS2 part"
-  /\bcs[123]\b.*\bseason\b/i,  // "CS2 season"
-  /\bcs[123]\b.*\bepisode\b/i, // "CS2 episode"
 ];
 
 function isCitiesSkylines(text) {
