@@ -720,6 +720,7 @@ async function run() {
   const { token, did } = await login();
 
   const steamCheckOnly = process.env.STEAM_CHECK_ONLY === "true";
+  const contentOnly    = process.env.CONTENT_ONLY === "true";
 
   // ── Check engagement + adjust weights (skip in steam-check-only mode) ──
   if (!steamCheckOnly) {
@@ -728,10 +729,11 @@ async function run() {
   }
 
   // ── Step 1: Check Steam for new 100% completions ─────────
-  // Skip if a completion was posted within the last 2 hours to prevent double-posting
-  const lastCompletionHoursAgo = contentStats.lastCompletionPostAt
-    ? (Date.now() - new Date(contentStats.lastCompletionPostAt).getTime()) / 3600000
-    : 999;
+  // Skip entirely if running in content-only mode
+  if (!contentOnly) {
+    const lastCompletionHoursAgo = contentStats.lastCompletionPostAt
+      ? (Date.now() - new Date(contentStats.lastCompletionPostAt).getTime()) / 3600000
+      : 999;
 
   if (lastCompletionHoursAgo < 2) {
     console.log(`⏳ Skipping Steam check — completion posted ${lastCompletionHoursAgo.toFixed(1)}h ago (2h cooldown)`);
@@ -778,6 +780,7 @@ async function run() {
       }
     }
   }
+  } // end if (!contentOnly)
 
   if (steamCheckOnly) return;
 
