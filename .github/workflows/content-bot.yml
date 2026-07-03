@@ -2,9 +2,9 @@ name: Content Bot
 
 on:
   schedule:
-    - cron: '0 23 * * *'   # 6pm CST (UTC-6) — first post
-    - cron: '0 3 * * *'    # 9pm CST (UTC-6) — second post
-  workflow_dispatch:        # manual trigger for testing
+    - cron: '0 23 * * *'   # 6pm CDT — first post
+    - cron: '0 3 * * *'    # 10pm CDT — second post
+  workflow_dispatch:
 
 jobs:
   post-content:
@@ -26,6 +26,5 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           GIST_TOKEN:          ${{ secrets.GIST_TOKEN }}
           GIST_ID:             ${{ secrets.GIST_ID }}
-          STEAM_API_KEY:                    ${{ secrets.STEAM_API_KEY }}
-          DISCORD_COMPLETION_WEBHOOK_URL: ${{ secrets.DISCORD_COMPLETION_WEBHOOK_URL }}
+          CONTENT_ONLY:        "true"
         run: node content_bot.js
