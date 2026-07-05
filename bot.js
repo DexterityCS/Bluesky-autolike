@@ -9,13 +9,14 @@ const ANTHROPIC_API_KEY  = process.env.ANTHROPIC_API_KEY;
 const ACTIONS_PER_RUN    = parseInt(process.env.ACTIONS_PER_RUN || "25");
 const FOLLOW_BACK_DAYS   = 7;
 
-const MIN_FOLLOWERS      = 25;
-const MIN_ACCOUNT_DAYS   = 30;
-const MAX_POST_AGE_DAYS  = 7;
-const MAX_FOLLOW_RATIO   = 10;
+const MIN_FOLLOWERS       = 25;
+const MIN_ACCOUNT_DAYS    = 30;
+const MAX_POST_AGE_DAYS   = 7;
+const MAX_FOLLOW_RATIO    = 3;   
+const MAX_FOLLOWING_COUNT = 1500; // hard cap — flags mass-followers even if their ratio looks OK
 
-const DAILY_ACTION_CAP   = 200;
-const HOURLY_LIMIT       = 60;
+const DAILY_ACTION_CAP   = 100; 
+const HOURLY_LIMIT       = 30;  
 
 const REPLY_FREQUENCY      = 3;
 const REPLY_COOLDOWN_DAYS  = 7;
@@ -102,11 +103,6 @@ function loadGraduatedTerms() {
   if (!fs.existsSync(GRADUATED_TERMS_PATH)) return new Set();
   try { return new Set(JSON.parse(fs.readFileSync(GRADUATED_TERMS_PATH, "utf8"))); }
   catch { return new Set(); }
-}
-
-function saveGraduatedTerms(graduatedSet) {
-  _graduatedStore = [...graduatedSet];
-  fs.writeFileSync(GRADUATED_TERMS_PATH, JSON.stringify(_graduatedStore, null, 2));
 }
 
 function initFromGist(gist) {
@@ -573,7 +569,14 @@ async function passesQualityFilters(authorDid, post, token, stats) {
 
   if (followerCount > 0 && followingCount / followerCount > MAX_FOLLOW_RATIO) {
     stats.filteredCount = (stats.filteredCount || 0) + 1;
+    autoBlock(authorDid, `spam ratio (${followingCount} following / ${followerCount} followers)`);
     return { pass: false, reason: `spam ratio (${followingCount} following / ${followerCount} followers)` };
+  }
+
+  if (followingCount > MAX_FOLLOWING_COUNT) {
+    stats.filteredCount = (stats.filteredCount || 0) + 1;
+    autoBlock(authorDid, `mass-follower (${followingCount} following, over ${MAX_FOLLOWING_COUNT} cap)`);
+    return { pass: false, reason: `mass-follower (${followingCount} following)` };
   }
 
   if (profile.createdAt) {
@@ -933,13 +936,11 @@ async function runLikeBackFollowers(did, token, following, followers, stats) {
 }
 
 // ── Follow-back rate ──────────────────────────────────────
-// Recalculates from scratch each run based on current followedAt records
-// so the rate always reflects who you're currently following
 function recalculateFollowBackRate(stats, following) {
   let followed   = 0;
   let followedBack = 0;
   for (const [did, info] of Object.entries(stats.followedAt || {})) {
-    if (!following.has(did)) continue; // skip anyone already unfollowed
+    if (!following.has(did)) continue;
     followed++;
     if (info.followedBack) followedBack++;
   }
@@ -980,7 +981,6 @@ async function updateFollowBackRate(stats, followers, following) {
     }
   }
 
-  // Recalculate rate from current following state
   recalculateFollowBackRate(stats, following);
 
   const rate = stats.followBackRate.followed > 0
@@ -997,7 +997,6 @@ async function updateFollowBackRate(stats, followers, following) {
     console.log(`📊 Top term follow-back rates: ${termRates.map(t => `"${t.term}" ${t.rate}% (${t.followed})`).join(", ")}`);
   }
 
-  // ── Discord follow-back notification ──────────────────────
   if (newFollowBackDetails.length > 0 && DISCORD_WEBHOOK_URL) {
     console.log(`🎉 ${newFollowBackDetails.length} new follow-back(s) detected`);
     try {
@@ -1028,7 +1027,6 @@ async function updateFollowBackRate(stats, followers, following) {
     }
   }
 
-  // ── Follow-back rate alert ────────────────────────────────
   const FOLLOW_BACK_ALERT_THRESHOLD = 2.0;
   const numericRate = parseFloat(rate);
   if (
