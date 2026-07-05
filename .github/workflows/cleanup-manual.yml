@@ -1,4 +1,4 @@
-name: Cleanup Following (Manual)
+name: Cleanup Following
 
 on:
   workflow_dispatch:
@@ -11,6 +11,11 @@ on:
         options:
           - "true"
           - "false"
+  schedule:
+    # Runs at 09:00 UTC on the 1st of every month.
+    # Scheduled runs always actually unfollow (not a dry run) —
+    # this is meant to be a recurring cleanup, not just a preview.
+    - cron: "0 9 1 * *"
 
 jobs:
   cleanup:
@@ -28,5 +33,8 @@ jobs:
         env:
           BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
           BLUESKY_PASSWORD: ${{ secrets.BLUESKY_PASSWORD }}
-          DRY_RUN: ${{ inputs.dry_run }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          # Manual runs use whatever you pick in the dropdown.
+          # Scheduled (cron) runs default to a real cleanup, not a dry run.
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
         run: node cleanup-following.js
