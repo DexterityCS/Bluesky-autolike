@@ -18,6 +18,9 @@ const STEAM_API_KEY     = process.env.STEAM_API_KEY || null;
 const STEAM_ID          = "76561198121481638";
 
 // ── Player context ────────────────────────────────────────
+// Rank/rating can be overridden via env vars so you can update them
+// without touching code — just edit the repo variable/secret whenever
+// your rank changes. Falls back to the hardcoded defaults if unset.
 const PLAYER_CONTEXT = {
   cs2: {
     rank: process.env.CS2_RANK || "Premier",
@@ -71,6 +74,18 @@ function request(options, body = null) {
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ── Safe truncation — never cuts a multi-byte character (emoji, CJK, etc.) in half ──
+function safeTruncate(str, maxLen) {
+  if (!str || str.length <= maxLen) return str || "";
+  let cut = str.slice(0, maxLen);
+  // If we landed on the high surrogate of a pair, back off one more character
+  const lastCode = cut.charCodeAt(cut.length - 1);
+  if (lastCode >= 0xD800 && lastCode <= 0xDBFF) {
+    cut = cut.slice(0, -1);
+  }
+  return cut;
+}
 
 // ── Recent posts of a type — used to steer Claude away from repeating itself ──
 function getRecentPostTexts(contentStats, type, limit = 5) {
@@ -268,7 +283,7 @@ You just 100%'d all achievements in: "${context.game}"
 Completion date: ${context.completedAt ? new Date(context.completedAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "recently"}
 ${context.isNew ? "This was just completed." : "This was completed a while back — mention the date naturally."}
 ${context.genres ? `Steam genres: ${context.genres}` : ""}
-${context.description ? `Game description: ${context.description.slice(0, 200)}` : ""}
+${context.description ? `Game description: ${safeTruncate(context.description, 200)}` : ""}
 
 Write an excited but genuine celebration post. Include:
 - That you got 100% achievements
@@ -297,7 +312,10 @@ Under 280 chars. Output only the post text.`,
     messages: [{ role: "user", content: prompts[type] }],
   }));
 
-  if (res.status !== 200) throw new Error(`Claude API error: ${res.status}`);
+  if (res.status !== 200) {
+    const errMsg = res.body?.error?.message || JSON.stringify(res.body);
+    throw new Error(`Claude API error: ${res.status} — ${errMsg}`);
+  }
   return res.body.content?.[0]?.text?.trim();
 }
 
@@ -643,7 +661,7 @@ async function checkPostEngagement(token, did, contentStats) {
         embeds: [{
           title: "🔥 Notable Post Engagement!",
           color: 0x00ff88,
-          description: `"${post.text?.slice(0, 200) || "—"}"`,
+          description: `"${safeTruncate(post.text, 200) || "—"}"`,
           fields: [
             { name: "❤️ Likes",    value: String(likes),   inline: true },
             { name: "🔁 Reposts",  value: String(reposts), inline: true },
@@ -835,7 +853,7 @@ async function run() {
   contentStats.sentPosts.push({
     uri:          postResult?.uri || null,
     type,
-    text:         postText.slice(0, 200),
+    text:         safeTruncate(postText, 200),
     sentAt:       new Date().toISOString(),
     lastLikes:    0,
     lastReposts:  0,
