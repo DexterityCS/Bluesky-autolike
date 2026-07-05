@@ -20,14 +20,14 @@ const STEAM_ID          = "76561198121481638";
 // ── Player context ────────────────────────────────────────
 const PLAYER_CONTEXT = {
   cs2: {
-    rank: "MG2",
-    rating: 13500,
-    focus: "improving on Nuke and overall gameplay",
+    rank: process.env.CS2_RANK || "Premier",
+    rating: process.env.CS2_RATING || null, // omit specific number if unset — see prompt below
+    focus: process.env.CS2_FOCUS || "improving overall gameplay and utility usage",
     handle: "dexteritycs",
   },
   ow2: {
-    rank: "Silver",
-    goal: "climbing out of Silver",
+    rank: process.env.OW2_RANK || "climbing the ranked ladder",
+    goal: process.env.OW2_GOAL || "climbing higher in ranked",
     supportMains: ["Kiriko", "Moira"],
     damageMains: ["Soldier: 76", "Bastion", "Junkrat"],
     role: "Support and Damage",
@@ -71,6 +71,15 @@ function request(options, body = null) {
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ── Recent posts of a type — used to steer Claude away from repeating itself ──
+function getRecentPostTexts(contentStats, type, limit = 5) {
+  if (!contentStats.sentPosts?.length) return [];
+  return contentStats.sentPosts
+    .filter(p => p.type === type && p.text)
+    .slice(-limit)
+    .map(p => p.text);
+}
 
 // ── Gist helpers ──────────────────────────────────────────
 async function fetchContentStats() {
@@ -204,34 +213,41 @@ async function postToBluesky(text, token, did) {
 }
 
 // ── Claude content generation ─────────────────────────────
-async function generateContent(type, context = {}) {
+async function generateContent(type, context = {}, contentStats = null) {
+  const recentTexts = contentStats ? getRecentPostTexts(contentStats, type) : [];
+  const avoidRepeatBlock = recentTexts.length
+    ? `\n\nYour last few posts of this type were:\n${recentTexts.map((t, i) => `${i + 1}. "${t}"`).join("\n")}\n\nWrite something genuinely different this time — a different angle, structure, and opening line. Don't reuse phrasing or the same observation.`
+    : "";
+
   const prompts = {
     cs2: `You are Dexterity (@dexteritycs.bsky.social), a CS2 player and Twitch streamer.
-Current stats: ${PLAYER_CONTEXT.cs2.rank} rank, ${PLAYER_CONTEXT.cs2.rating} Premier rating.
+Current status: ${PLAYER_CONTEXT.cs2.rank} rank${PLAYER_CONTEXT.cs2.rating ? `, ${PLAYER_CONTEXT.cs2.rating} Premier rating` : ""}.
 Currently focusing on: ${PLAYER_CONTEXT.cs2.focus}.
 
 Write a genuine, conversational Bluesky post about CS2. Could be:
-- Something you're working on improving (Nuke callouts, positioning, utility)
+- Something you're working on improving (callouts, positioning, utility)
 - A thought about the Premier grind or ranked experience
 - A tip or observation from recent gameplay
-- Something relatable to MG/high-Silver CS2 players
+- Something relatable to players around your rank
 
-Sound like a real player, not a brand. Keep it under 280 chars. No excessive emojis.
-Include 1-2 relevant hashtags like #CS2 #CounterStrike. Output only the post text.`,
+Sound like a real player, not a brand. Don't state a specific numeric rating unless one was given above — vague/relative language about rank progress is fine and safer than a number that might be out of date.
+Keep it under 280 chars. No excessive emojis.
+Include 1-2 relevant hashtags like #CS2 #CounterStrike. Output only the post text.${avoidRepeatBlock}`,
 
     ow2: `You are Dexterity (@dexteritycs.bsky.social), an OW2 player and Twitch streamer.
-Current rank: ${PLAYER_CONTEXT.ow2.rank}, trying to ${PLAYER_CONTEXT.ow2.goal}.
+Current status: ${PLAYER_CONTEXT.ow2.rank}, working on ${PLAYER_CONTEXT.ow2.goal}.
 Support mains: ${PLAYER_CONTEXT.ow2.supportMains.join(", ")}.
 Damage mains: ${PLAYER_CONTEXT.ow2.damageMains.join(", ")}.
 
 Write a genuine, conversational Bluesky post about Overwatch 2. Could be:
 - A thought about playing Kiriko or Moira in ranked
-- Something about the Silver rank experience
+- Something about the ranked grind experience
 - A tip or frustration about Soldier, Bastion, or Junkrat
 - Something relatable to support/flex players climbing ranked
 
-Sound like a real player. Keep it under 280 chars. No excessive emojis.
-Include 1-2 hashtags like #Overwatch2 #OW2. Output only the post text.`,
+Sound like a real player. Don't state a specific rank tier unless one was clearly given above — vague/relative language about rank progress is fine and safer than a tier that might be out of date.
+Keep it under 280 chars. No excessive emojis.
+Include 1-2 hashtags like #Overwatch2 #OW2. Output only the post text.${avoidRepeatBlock}`,
 
     incremental: `You are Dexterity (@dexteritycs.bsky.social), a Twitch streamer who loves incremental/idle games.
 You have 100% completed all achievements in dozens of incremental games on Steam.
@@ -656,8 +672,9 @@ function adjustContentWeights(contentStats) {
 
   for (const type of types) {
     const data = eng[type] || { likes: 0, reposts: 0, posts: 0 };
-    if (data.posts < 3) {
-      // Not enough data yet — keep default weight
+    if (data.posts < 10) {
+      // Not enough data yet — keep default weight. Raised from 3 to 10:
+      // with only 3 posts, one lucky like can swing the weight hard.
       scores[type] = contentStats.typeWeights?.[type] || (type === "cs2" ? 3 : 2);
       continue;
     }
@@ -750,7 +767,7 @@ async function run() {
         isNew:       newCompletion.isNew,
         description: newCompletion.description,
         genres:      newCompletion.genres,
-      });
+      }, contentStats);
       if (postText) {
         const bskyPost = await postToBluesky(postText, token, did);
         const bskyUri  = bskyPost?.uri || null;
@@ -804,7 +821,7 @@ async function run() {
     console.log(`🎮 Incremental game: "${context.game}"`);
   }
 
-  const postText = await generateContent(type, context);
+  const postText = await generateContent(type, context, contentStats);
   if (!postText) {
     console.error("❌ Failed to generate content");
     process.exit(1);
