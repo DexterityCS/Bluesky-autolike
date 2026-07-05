@@ -12,11 +12,11 @@ const FOLLOW_BACK_DAYS   = 7;
 const MIN_FOLLOWERS       = 25;
 const MIN_ACCOUNT_DAYS    = 30;
 const MAX_POST_AGE_DAYS   = 7;
-const MAX_FOLLOW_RATIO    = 3;   
+const MAX_FOLLOW_RATIO    = 3;    // tightened from 10 — was letting mass-follow/churn accounts through
 const MAX_FOLLOWING_COUNT = 1500; // hard cap — flags mass-followers even if their ratio looks OK
 
-const DAILY_ACTION_CAP   = 100; 
-const HOURLY_LIMIT       = 30;  
+const DAILY_ACTION_CAP   = 100; // lowered from 200 — high volume can look bot-like to Bluesky's spam detection
+const HOURLY_LIMIT       = 30;  // lowered from 60
 
 const REPLY_FREQUENCY      = 3;
 const REPLY_COOLDOWN_DAYS  = 7;
@@ -332,6 +332,17 @@ async function apiRequest(path, method, body, token, retries = 3) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// ── Safe truncation — never cuts a multi-byte character (emoji, CJK, etc.) in half ──
+function safeTruncate(str, maxLen) {
+  if (!str || str.length <= maxLen) return str || "";
+  let cut = str.slice(0, maxLen);
+  const lastCode = cut.charCodeAt(cut.length - 1);
+  if (lastCode >= 0xD800 && lastCode <= 0xDBFF) {
+    cut = cut.slice(0, -1);
+  }
+  return cut;
+}
+
 // ── Auth ──────────────────────────────────────────────────
 async function login() {
   const res = await apiRequest("com.atproto.server.createSession", "POST", {
@@ -528,7 +539,7 @@ async function isGamingRelevantAI(postText) {
       system: "You are a content classifier. Answer only YES or NO.",
       messages: [{
         role: "user",
-        content: `Is this post about gaming, esports, streaming, or game-related content? Answer only YES or NO.\n\nPost: "${postText.slice(0, 300)}"`
+        content: `Is this post about gaming, esports, streaming, or game-related content? Answer only YES or NO.\n\nPost: "${safeTruncate(postText, 300)}"`
       }]
     });
     const res = await request({
@@ -624,7 +635,7 @@ async function passesQualityFilters(authorDid, post, token, stats) {
         system: "You are a language detector. Answer only YES or NO.",
         messages: [{
           role: "user",
-          content: `Is this text written in English? Answer only YES or NO.\n\n"${bio.slice(0, 300)}"`
+          content: `Is this text written in English? Answer only YES or NO.\n\n"${safeTruncate(bio, 300)}"`
         }]
       });
       const langRes = await request({
@@ -698,7 +709,7 @@ async function generateReply(postText, authorHandle, persona = "friendly", token
       system: "You are a language detector. Answer only YES or NO.",
       messages: [{
         role: "user",
-        content: `Is this text written in English? Answer only YES or NO.\n\n"${postText.slice(0, 300)}"`
+        content: `Is this text written in English? Answer only YES or NO.\n\n"${safeTruncate(postText, 300)}"`
       }]
     });
     const langRes = await request({
@@ -739,7 +750,7 @@ Important notes:
 - CS1, CS2, CS3 used as sequel numbers (like book series, album names, seasons) are NOT Counter-Strike
 - If the post mentions CS2 alongside CS1 or CS3, it is almost certainly NOT Counter-Strike
 
-Post: "${postText.slice(0, 300)}"`
+Post: "${safeTruncate(postText, 300)}"`
         }]
       });
       const guardRes = await request({
@@ -2109,7 +2120,7 @@ async function run() {
           model: "claude-haiku-4-5-20251001",
           max_tokens: 10,
           system: "You are a language detector. Answer only YES or NO.",
-          messages: [{ role: "user", content: `Is this text written in English? Answer only YES or NO.\n\n"${postText.slice(0, 300)}"` }]
+          messages: [{ role: "user", content: `Is this text written in English? Answer only YES or NO.\n\n"${safeTruncate(postText, 300)}"` }]
         });
         const langRes = await request({
           hostname: "api.anthropic.com", path: "/v1/messages", method: "POST",
