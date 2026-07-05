@@ -1,17 +1,10 @@
-// cleanup-following.js
-// One-off script: scans everyone you currently follow, flags accounts that
-// match follow-farm patterns (high following/follower ratio or mass-following),
-// and unfollows them. Run this once, then go back to normal bot.js runs.
-//
-// Usage: BLUESKY_HANDLE=... BLUESKY_PASSWORD=... node cleanup-following.js
-// Add DRY_RUN=true to just list what WOULD be unfollowed without acting.
-
 const https = require("https");
 const fs    = require("fs");
 
-const BLUESKY_HANDLE   = process.env.BLUESKY_HANDLE;
-const BLUESKY_PASSWORD = process.env.BLUESKY_PASSWORD;
-const DRY_RUN          = process.env.DRY_RUN === "true";
+const BLUESKY_HANDLE      = process.env.BLUESKY_HANDLE;
+const BLUESKY_PASSWORD    = process.env.BLUESKY_PASSWORD;
+const DRY_RUN             = process.env.DRY_RUN === "true";
+const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || null;
 
 // Same thresholds as the updated bot.js
 const MAX_FOLLOW_RATIO    = 3;
@@ -115,6 +108,40 @@ async function unfollowAccount(myDid, rkey, token) {
   return res.status === 200;
 }
 
+async function postDiscordSummary({ dryRun, totalChecked, flagged, unfollowed }) {
+  if (!DISCORD_WEBHOOK_URL) return;
+  try {
+    const url = new URL(DISCORD_WEBHOOK_URL);
+    const topFlagged = flagged.slice(0, 15)
+      .map(f => `**@${f.handle}** — ${f.reason}`)
+      .join("\n") || "None";
+    const extra = flagged.length > 15 ? `\n…and ${flagged.length - 15} more` : "";
+
+    const body = JSON.stringify({
+      embeds: [{
+        title: dryRun ? "🧪 Following Cleanup — Dry Run" : "🧹 Following Cleanup Complete",
+        color: dryRun ? 0xffd600 : 0x00e5ff,
+        fields: [
+          { name: "Accounts Checked", value: String(totalChecked), inline: true },
+          { name: "Flagged",          value: String(flagged.length), inline: true },
+          { name: dryRun ? "Would Unfollow" : "Unfollowed", value: String(dryRun ? flagged.length : unfollowed), inline: true },
+        ],
+        description: `${topFlagged}${extra}`,
+        footer: { text: dryRun ? "Dry run — no accounts were actually unfollowed" : `dexterityCS following cleanup • ${new Date().toLocaleString()}` },
+      }]
+    });
+    await request({
+      hostname: url.hostname,
+      path: url.pathname + url.search,
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    }, body);
+    console.log("📨 Discord summary posted");
+  } catch (e) {
+    console.warn(`Discord summary failed: ${e.message}`);
+  }
+}
+
 async function main() {
   if (!BLUESKY_HANDLE || !BLUESKY_PASSWORD) {
     console.error("❌ Missing BLUESKY_HANDLE or BLUESKY_PASSWORD env vars");
@@ -164,6 +191,7 @@ async function main() {
 
   if (flagged.length === 0) {
     console.log("✅ Nothing to clean up — your following list already looks healthy.");
+    await postDiscordSummary({ dryRun: DRY_RUN, totalChecked: following.length, flagged: [], unfollowed: 0 });
     return;
   }
 
@@ -171,6 +199,7 @@ async function main() {
     console.log("\n🧪 DRY RUN — no unfollows performed. Flagged accounts:");
     flagged.forEach(f => console.log(`   @${f.handle} — ${f.reason}`));
     console.log("\nRe-run without DRY_RUN=true to actually unfollow these.");
+    await postDiscordSummary({ dryRun: true, totalChecked: following.length, flagged, unfollowed: 0 });
     return;
   }
 
@@ -185,6 +214,7 @@ async function main() {
   }
 
   console.log(`\n✅ Cleanup complete — unfollowed ${unfollowed}/${flagged.length} flagged accounts`);
+  await postDiscordSummary({ dryRun: false, totalChecked: following.length, flagged, unfollowed });
 }
 
 main().catch(err => {
