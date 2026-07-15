@@ -144,6 +144,8 @@ function getDefaultContentStats() {
     typeEngagement:     { cs2: { likes: 0, reposts: 0, posts: 0 },
                           ow2: { likes: 0, reposts: 0, posts: 0 },
                           incremental: { likes: 0, reposts: 0, posts: 0 } },
+    uncelebratedQueue:  [], // confirmed 100% completions waiting to be posted about
+    confirmedComplete:  [], // appids already confirmed 100% — skip re-checking achievements for these
   };
 }
 
@@ -369,12 +371,14 @@ async function checkSteamCompletions(contentStats) {
     // Use cached library as the source of truth
     const allGames = contentStats.gameLibrary;
     const celebrated  = new Set(contentStats.celebratedGames || []);
+    const confirmedComplete = new Set((contentStats.confirmedComplete || []).map(String));
     const checkedGames = contentStats.checkedGames || {};
     const recheckAfterDays = 7;
 
     const candidates = allGames
       .filter(g => {
         if (celebrated.has(String(g.appid))) return false;
+        if (confirmedComplete.has(String(g.appid))) return false; // already confirmed — sitting in the queue
         const lastChecked = checkedGames[String(g.appid)];
         if (lastChecked) {
           const daysSince = (Date.now() - new Date(lastChecked).getTime()) / 86400000;
@@ -474,6 +478,27 @@ async function checkSteamCompletions(contentStats) {
         } else {
           console.log(`📜 Historical 100%: ${game.name} (completed ${lastUnlockDate.toLocaleDateString()})`);
           historicalPool.push(completion);
+
+          // Persist into the durable queue so it survives across runs and
+          // doesn't need to be re-fetched from Steam every time
+          if (!contentStats.uncelebratedQueue) contentStats.uncelebratedQueue = [];
+          const alreadyQueued = contentStats.uncelebratedQueue.some(q => q.appid === completion.appid);
+          if (!alreadyQueued) {
+            contentStats.uncelebratedQueue.push({
+              appid:        completion.appid,
+              name:         completion.name,
+              achievements: completion.achievements,
+              playtime:     completion.playtime,
+              completedAt:  completion.completedAt,
+              description:  completion.description,
+              genres:       completion.genres,
+              queuedAt:     new Date().toISOString(),
+            });
+          }
+          if (!contentStats.confirmedComplete) contentStats.confirmedComplete = [];
+          if (!contentStats.confirmedComplete.includes(completion.appid)) {
+            contentStats.confirmedComplete.push(completion.appid);
+          }
           // Keep scanning for a brand new one
         }
       } catch (e) {
@@ -483,9 +508,14 @@ async function checkSteamCompletions(contentStats) {
 
     if (newCompletion) return newCompletion;
 
-    if (historicalPool.length > 0) {
-      historicalPool.sort((a, b) => a.completedAt - b.completedAt);
-      return historicalPool[0];
+    // Pick the oldest entry from the durable queue — not just what this run happened to scan.
+    // The queue accumulates across runs, so this reflects the full backlog.
+    if (contentStats.uncelebratedQueue?.length > 0) {
+      const sorted = [...contentStats.uncelebratedQueue].sort(
+        (a, b) => new Date(a.completedAt) - new Date(b.completedAt)
+      );
+      const pick = sorted[0];
+      return { ...pick, isNew: false, completedAt: new Date(pick.completedAt) };
     }
 
     console.log("No uncelebrated 100% completions found this run");
@@ -739,6 +769,70 @@ function adjustContentWeights(contentStats) {
     }
   }
 }
+async function postQueueSummary(contentStats) {
+  if (!DISCORD_WEBHOOK_URL) return;
+  const queue = contentStats.uncelebratedQueue || [];
+  if (queue.length === 0) return;
+
+  const sorted = [...queue].sort((a, b) => new Date(a.completedAt) - new Date(b.completedAt));
+  const preview = sorted.slice(0, 20).map((g, i) => {
+    const date = new Date(g.completedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    return `${i + 1}. **${g.name}** — completed ${date}`;
+  }).join("\n");
+  const extra = sorted.length > 20 ? `\n…and ${sorted.length - 20} more` : "";
+
+  try {
+    const url = new URL(DISCORD_WEBHOOK_URL);
+    await request({
+      hostname: url.hostname,
+      path: url.pathname + url.search,
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    }, JSON.stringify({
+      embeds: [{
+        title: `📋 100% Completion Queue — ${queue.length} game(s) waiting`,
+        color: 0xffd600,
+        description: `${preview}${extra}`,
+        footer: { text: `Oldest completions post first, one every 2h cooldown • dexterityCS Content Bot` },
+      }]
+    }));
+    console.log(`📨 Queue summary posted to Discord (${queue.length} games)`);
+  } catch (e) {
+    console.warn(`Discord queue summary failed: ${e.message}`);
+  }
+}
+
+async function postCelebratedSummary(contentStats) {
+  if (!DISCORD_WEBHOOK_URL) return;
+  const celebrated = contentStats.celebratedGames || [];
+  if (celebrated.length === 0) return;
+
+  const libraryByAppid = new Map((contentStats.gameLibrary || []).map(g => [String(g.appid), g.name]));
+  const names = celebrated.map(appid => libraryByAppid.get(String(appid)) || `App ${appid}`);
+  const preview = names.slice(0, 30).map((n, i) => `${i + 1}. ${n}`).join("\n");
+  const extra = names.length > 30 ? `\n…and ${names.length - 30} more` : "";
+
+  try {
+    const url = new URL(DISCORD_WEBHOOK_URL);
+    await request({
+      hostname: url.hostname,
+      path: url.pathname + url.search,
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    }, JSON.stringify({
+      embeds: [{
+        title: `✅ Already Posted About — ${celebrated.length} game(s)`,
+        color: 0x00ff88,
+        description: `${preview}${extra}`,
+        footer: { text: `dexterityCS Content Bot` },
+      }]
+    }));
+    console.log(`📨 Celebrated games summary posted to Discord (${celebrated.length} games)`);
+  } catch (e) {
+    console.warn(`Discord celebrated summary failed: ${e.message}`);
+  }
+}
+
 async function run() {
   if (!BLUESKY_HANDLE || !BLUESKY_PASSWORD) {
     console.error("❌ Missing BLUESKY_HANDLE or BLUESKY_PASSWORD");
@@ -752,6 +846,30 @@ async function run() {
   console.log("🚀 Content bot starting...");
 
   const contentStats = await fetchContentStats();
+
+  // ── Queue-only mode — report both the backlog and what's already been posted ──
+  if (process.env.QUEUE_ONLY === "true") {
+    const queue = contentStats.uncelebratedQueue || [];
+    console.log(`📋 ${queue.length} game(s) in the uncelebrated queue:`);
+    [...queue]
+      .sort((a, b) => new Date(a.completedAt) - new Date(b.completedAt))
+      .forEach((g, i) => {
+        const date = new Date(g.completedAt).toLocaleDateString();
+        console.log(`   ${i + 1}. ${g.name} — completed ${date}`);
+      });
+
+    const libraryByAppid = new Map((contentStats.gameLibrary || []).map(g => [String(g.appid), g.name]));
+    const celebrated = contentStats.celebratedGames || [];
+    console.log(`\n✅ ${celebrated.length} game(s) already posted about:`);
+    celebrated.forEach((appid, i) => {
+      console.log(`   ${i + 1}. ${libraryByAppid.get(String(appid)) || `App ${appid}`}`);
+    });
+
+    await postQueueSummary(contentStats);
+    await postCelebratedSummary(contentStats);
+    return;
+  }
+
   const { token, did } = await login();
 
   const steamCheckOnly = process.env.STEAM_CHECK_ONLY === "true";
@@ -773,7 +891,13 @@ async function run() {
   if (lastCompletionHoursAgo < 2) {
     console.log(`⏳ Skipping Steam check — completion posted ${lastCompletionHoursAgo.toFixed(1)}h ago (2h cooldown)`);
   } else {
+    const queueSizeBefore = (contentStats.uncelebratedQueue || []).length;
     const newCompletion = await checkSteamCompletions(contentStats);
+    const queueSizeAfter = (contentStats.uncelebratedQueue || []).length;
+    if (queueSizeAfter > queueSizeBefore) {
+      console.log(`📋 Queue grew from ${queueSizeBefore} to ${queueSizeAfter} game(s)`);
+      await postQueueSummary(contentStats);
+    }
 
     if (newCompletion) {
       console.log(`🎉 Posting Steam 100% celebration for "${newCompletion.name}"`);
@@ -791,6 +915,12 @@ async function run() {
         const bskyUri  = bskyPost?.uri || null;
         await postCompletionToDiscord(newCompletion, postText, bskyUri);
         contentStats.celebratedGames.push(newCompletion.appid);
+        if (contentStats.uncelebratedQueue) {
+          contentStats.uncelebratedQueue = contentStats.uncelebratedQueue.filter(q => q.appid !== newCompletion.appid);
+        }
+        if (contentStats.confirmedComplete) {
+          contentStats.confirmedComplete = contentStats.confirmedComplete.filter(id => id !== newCompletion.appid);
+        }
         contentStats.totalPosts           = (contentStats.totalPosts || 0) + 1;
         contentStats.lastPostAt           = new Date().toISOString();
         contentStats.lastPostType         = "steam_completion";
