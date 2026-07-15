@@ -834,21 +834,14 @@ async function postCelebratedSummary(contentStats) {
 }
 
 async function run() {
-  if (!BLUESKY_HANDLE || !BLUESKY_PASSWORD) {
-    console.error("❌ Missing BLUESKY_HANDLE or BLUESKY_PASSWORD");
-    process.exit(1);
-  }
-  if (!ANTHROPIC_API_KEY) {
-    console.error("❌ Missing ANTHROPIC_API_KEY");
-    process.exit(1);
-  }
-
   console.log("🚀 Content bot starting...");
 
-  const contentStats = await fetchContentStats();
-
   // ── Queue-only mode — report both the backlog and what's already been posted ──
+  // Runs before the credential checks below since it never logs into Bluesky
+  // or calls the Anthropic API — it only reads the Gist.
   if (process.env.QUEUE_ONLY === "true") {
+    const contentStats = await fetchContentStats();
+
     const queue = contentStats.uncelebratedQueue || [];
     console.log(`📋 ${queue.length} game(s) in the uncelebrated queue:`);
     [...queue]
@@ -869,6 +862,17 @@ async function run() {
     await postCelebratedSummary(contentStats);
     return;
   }
+
+  if (!BLUESKY_HANDLE || !BLUESKY_PASSWORD) {
+    console.error("❌ Missing BLUESKY_HANDLE or BLUESKY_PASSWORD");
+    process.exit(1);
+  }
+  if (!ANTHROPIC_API_KEY) {
+    console.error("❌ Missing ANTHROPIC_API_KEY");
+    process.exit(1);
+  }
+
+  const contentStats = await fetchContentStats();
 
   const { token, did } = await login();
 
