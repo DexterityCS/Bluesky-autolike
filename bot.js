@@ -381,8 +381,25 @@ async function getFollowers(did, token) {
     for (const f of res.body.followers || []) followers.add(f.did);
     cursor = res.body.cursor;
   } while (cursor);
-  console.log(`👥 You have ${followers.size} followers`);
-  return { followers, count: followers.size };
+
+  // The enumerated list above can under-report — Bluesky's getFollowers list
+  // tends to omit accounts that are deactivated, taken down, or otherwise
+  // unresolvable, even though they still count as a follow on the graph.
+  // profile.followersCount is the platform's real running total, so use that
+  // for the reported count. The enumerated Set is still needed separately
+  // for membership checks (e.g. "did this account follow me back") since
+  // there's no way to check membership for accounts the list API won't return.
+  let realCount = followers.size;
+  const profile = await getProfile(did, token);
+  if (profile && typeof profile.followersCount === "number") {
+    realCount = profile.followersCount;
+    if (realCount !== followers.size) {
+      console.log(`ℹ️  Follower list enumerated ${followers.size}, but profile reports ${realCount} — using profile count (likely deactivated/unresolvable accounts in the difference)`);
+    }
+  }
+
+  console.log(`👥 You have ${realCount} followers`);
+  return { followers, count: realCount };
 }
 
 // ── Profile ───────────────────────────────────────────────
