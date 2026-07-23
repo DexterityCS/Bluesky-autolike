@@ -1151,7 +1151,7 @@ function logTopTerms(stats) {
 }
 
 // ── Auto-trim dead search terms ───────────────────────────────
-const DEAD_TERM_MIN_RUNS = 15;
+const DEAD_TERM_MIN_RUNS = 10; // lowered from 15 — terms sitting at 0 engagement for 10 runs are already a clear enough signal
 const DEAD_TERM_MIN_AVG  = 0.5;
 
 async function autoTrimDeadTerms(stats) {
@@ -1215,15 +1215,16 @@ async function autoTrimDeadTerms(stats) {
 }
 
 // ── Cycle in next candidate when a term is trimmed ────────────
-async function cycleInNextCandidate(trimmedCount) {
-  if (trimmedCount === 0) return;
-
+async function cycleInNextCandidate() {
   const candidates = loadCandidateTerms();
   const queued = candidates.filter(c => c.status === "queued");
+  if (queued.length === 0) return;
 
   const currentActiveCount = SEARCH_TERMS.length;
-  const slotsAvailable = Math.max(0, MAX_ACTIVE_SEARCH_TERMS - currentActiveCount + trimmedCount);
-  const toActivate = queued.slice(0, Math.min(trimmedCount, slotsAvailable));
+  const slotsAvailable = Math.max(0, MAX_ACTIVE_SEARCH_TERMS - currentActiveCount);
+  if (slotsAvailable === 0) return;
+
+  const toActivate = queued.slice(0, slotsAvailable);
 
   if (toActivate.length === 0) return;
 
@@ -2276,7 +2277,7 @@ async function run() {
 
   logTopTerms(stats);
   const trimmedThisRun = await autoTrimDeadTerms(stats);
-  await cycleInNextCandidate(trimmedThisRun ? trimmedThisRun.length : 0);
+  await cycleInNextCandidate();
   await graduateCandidateTerms(stats);
   await discoverNewTerms(token, stats);
 
