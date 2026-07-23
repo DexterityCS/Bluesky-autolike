@@ -44,7 +44,7 @@ let INCREMENTAL_GAMES = [];
 // Only celebrate completions unlocked after this date (when bot was set up)
 // Prevents posting about games completed before the content bot existed
 // ── Content rotation — built dynamically from weights ─────
-const DEFAULT_WEIGHTS = { cs2: 3, ow2: 2, incremental: 2 };
+const DEFAULT_WEIGHTS = { cs2: 3, ow2: 2, incremental: 2, backlog_poll: 1, progress_teaser: 1, quick_question: 2 };
 
 function buildContentTypes(weights) {
   const w = { ...DEFAULT_WEIGHTS, ...weights };
@@ -140,12 +140,19 @@ function getDefaultContentStats() {
     rotationIndex:      0,
     totalPosts:         0,
     sentPosts:          [],       // track URIs for engagement checking
-    typeWeights:        { cs2: 3, ow2: 2, incremental: 2 }, // adjustable weights
+    typeWeights:        { cs2: 3, ow2: 2, incremental: 2, backlog_poll: 1, progress_teaser: 1, quick_question: 2 }, // adjustable weights
     typeEngagement:     { cs2: { likes: 0, reposts: 0, posts: 0 },
                           ow2: { likes: 0, reposts: 0, posts: 0 },
-                          incremental: { likes: 0, reposts: 0, posts: 0 } },
+                          incremental: { likes: 0, reposts: 0, posts: 0 },
+                          backlog_poll: { likes: 0, reposts: 0, posts: 0 },
+                          progress_teaser: { likes: 0, reposts: 0, posts: 0 },
+                          quick_question: { likes: 0, reposts: 0, posts: 0 } },
     uncelebratedQueue:  [], // confirmed 100% completions waiting to be posted about
     confirmedComplete:  [], // appids already confirmed 100% — skip re-checking achievements for these
+    lastProgressTeaseAppid: null, // avoid teasing the same in-progress game twice in a row
+    activeBacklogPoll:  null, // { uri, cid, options, postedAt } — one open poll at a time
+    pollWinnerAppid:    null, // set once a poll resolves — biases the next progress_teaser pick
+    repliedToComments:  [],   // reply URIs already responded to, so we don't reply twice
   };
 }
 
@@ -229,7 +236,220 @@ async function postToBluesky(text, token, did) {
   return res.body;
 }
 
+// ── Reply to a specific post (used for replying to comments on your own posts) ──
+async function replyToBlueskyPost(rootUri, rootCid, parentUri, parentCid, text, token, did) {
+  const res = await request({
+    hostname: "bsky.social",
+    path: "/xrpc/com.atproto.repo.createRecord",
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+  }, JSON.stringify({
+    repo: did,
+    collection: "app.bsky.feed.post",
+    record: {
+      $type: "app.bsky.feed.post",
+      text,
+      reply: {
+        root:   { uri: rootUri, cid: rootCid },
+        parent: { uri: parentUri, cid: parentCid },
+      },
+      createdAt: new Date().toISOString(),
+    },
+  }));
+  if (res.status !== 200) throw new Error(`Reply post failed: ${JSON.stringify(res.body)}`);
+  return res.body;
+}
+
+// ── Fetch all replies in a thread (flattened, any depth) ──
+async function fetchPostReplies(uri, token) {
+  try {
+    const res = await request({
+      hostname: "bsky.social",
+      path: `/xrpc/app.bsky.feed.getPostThread?uri=${encodeURIComponent(uri)}&depth=6`,
+      method: "GET",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+    });
+    if (res.status !== 200 || !res.body.thread) return [];
+
+    const replies = [];
+    function walk(node) {
+      if (!node?.replies?.length) return;
+      for (const child of node.replies) {
+        if (child?.post) {
+          replies.push({
+            uri:          child.post.uri,
+            cid:          child.post.cid,
+            authorDid:    child.post.author?.did,
+            authorHandle: child.post.author?.handle,
+            text:         child.post.record?.text || "",
+          });
+          walk(child);
+        }
+      }
+    }
+    walk(res.body.thread);
+    return replies;
+  } catch (e) {
+    console.warn(`Fetch replies failed: ${e.message}`);
+    return [];
+  }
+}
+
 // ── Claude content generation ─────────────────────────────
+// ── Backlog helpers — real owned-but-unfinished games, from the cached Steam library ──
+function getBacklogCandidates(contentStats) {
+  const celebrated = new Set(contentStats.celebratedGames || []);
+  const confirmed  = new Set((contentStats.confirmedComplete || []).map(String));
+  return (contentStats.gameLibrary || []).filter(g => {
+    const id = String(g.appid);
+    if (celebrated.has(id) || confirmed.has(id)) return false;
+    if (!g.playtime || g.playtime <= 0) return false; // only games actually started
+    return true;
+  });
+}
+
+async function fetchAchievementProgress(appid) {
+  if (!STEAM_API_KEY) return null;
+  try {
+    const res = await request({
+      hostname: "api.steampowered.com",
+      path: `/ISteamUserStats/GetPlayerAchievements/v1/?appid=${appid}&key=${STEAM_API_KEY}&steamid=${STEAM_ID}`,
+      method: "GET",
+      headers: { "User-Agent": "dexteritycs-bot" },
+    });
+    if (res.status !== 200 || !res.body.playerstats?.achievements) return null;
+    const achievements = res.body.playerstats.achievements;
+    if (achievements.length === 0) return null;
+    const total    = achievements.length;
+    const unlocked = achievements.filter(a => a.achieved === 1).length;
+    return { unlocked, total };
+  } catch { return null; }
+}
+
+// ── Reply to comments on your own posts ───────────────────
+const MAX_COMMENT_REPLIES_PER_RUN = 5;
+const COMMENT_REPLY_WINDOW_HOURS  = 72;
+
+async function generateCommentReply(rootText, commentText, commentAuthorHandle) {
+  if (!ANTHROPIC_API_KEY) return null;
+  try {
+    const body = JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 120,
+      system: "You are Dexterity (@dexteritycs.bsky.social), a gaming streamer replying genuinely to comments on your own Bluesky posts. Be warm, specific, and conversational — like a real person glad someone engaged, not a template. Never discuss politics, NSFW topics, or anything off-topic from gaming/streaming — if the comment is off-topic, low-effort, or inappropriate, respond with exactly: SKIP. Output only the reply text or SKIP, nothing else.",
+      messages: [{
+        role: "user",
+        content: `Your original post said: "${safeTruncate(rootText, 200)}"\n\n@${commentAuthorHandle} replied: "${safeTruncate(commentText, 200)}"\n\nWrite a short, genuine reply to them. Under 200 characters.`
+      }]
+    });
+    const res = await request({
+      hostname: "api.anthropic.com",
+      path: "/v1/messages",
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
+    }, body);
+    if (res.status !== 200) {
+      const errMsg = res.body?.error?.message || JSON.stringify(res.body);
+      console.warn(`   ⚠️  Comment reply generation failed: ${res.status} — ${errMsg}`);
+      return null;
+    }
+    const text = res.body.content?.[0]?.text?.trim();
+    if (!text || text.toUpperCase() === "SKIP") return null;
+    return text;
+  } catch (e) {
+    console.warn(`   ⚠️  Comment reply generation error: ${e.message}`);
+    return null;
+  }
+}
+
+async function checkAndReplyToOwnComments(token, did, contentStats) {
+  if (!contentStats.sentPosts?.length) return;
+  if (!contentStats.repliedToComments) contentStats.repliedToComments = [];
+  const alreadyReplied = new Set(contentStats.repliedToComments);
+
+  const cutoff = Date.now() - (COMMENT_REPLY_WINDOW_HOURS * 3600000);
+  const recentPosts = contentStats.sentPosts.filter(p => p.uri && p.cid && new Date(p.sentAt).getTime() > cutoff);
+  if (!recentPosts.length) return;
+
+  let repliesSent = 0;
+  console.log(`💬 Checking comments on ${recentPosts.length} recent post(s)...`);
+
+  for (const post of recentPosts) {
+    if (repliesSent >= MAX_COMMENT_REPLIES_PER_RUN) break;
+    const replies = await fetchPostReplies(post.uri, token);
+
+    for (const reply of replies) {
+      if (repliesSent >= MAX_COMMENT_REPLIES_PER_RUN) break;
+      if (!reply.authorDid || reply.authorDid === did) continue; // skip self-replies
+      if (!reply.cid) continue;
+      if (alreadyReplied.has(reply.uri)) continue;
+      if (!reply.text || reply.text.trim().length < 3) continue;
+
+      const replyText = await generateCommentReply(post.text || "", reply.text, reply.authorHandle || "there");
+      // Mark as attempted either way — don't retry the same comment forever
+      alreadyReplied.add(reply.uri);
+      contentStats.repliedToComments.push(reply.uri);
+
+      if (!replyText) {
+        console.log(`   ⏭️  Skipped comment from @${reply.authorHandle} — nothing genuine to say`);
+        continue;
+      }
+
+      try {
+        await replyToBlueskyPost(post.uri, post.cid, reply.uri, reply.cid, replyText, token, did);
+        repliesSent++;
+        console.log(`   💬 Replied to @${reply.authorHandle}: "${replyText}"`);
+        await sleep(500);
+      } catch (e) {
+        console.warn(`   ⚠️  Reply failed for @${reply.authorHandle}: ${e.message}`);
+      }
+    }
+  }
+
+  if (contentStats.repliedToComments.length > 300) {
+    contentStats.repliedToComments = contentStats.repliedToComments.slice(-300);
+  }
+
+  if (repliesSent > 0) {
+    console.log(`✅ Sent ${repliesSent} comment repl${repliesSent === 1 ? "y" : "ies"} this run`);
+  }
+}
+
+// ── Close the loop on backlog poll winners ────────────────
+const POLL_RESOLUTION_HOURS = 24;
+
+async function resolvePollIfReady(token, did, contentStats) {
+  const poll = contentStats.activeBacklogPoll;
+  if (!poll) return null;
+
+  const hoursSince = (Date.now() - new Date(poll.postedAt).getTime()) / 3600000;
+  if (hoursSince < POLL_RESOLUTION_HOURS) return null;
+
+  const replies = await fetchPostReplies(poll.uri, token);
+  const tally = poll.options.map(o => ({ ...o, votes: 0 }));
+  for (const reply of replies) {
+    if (reply.authorDid === did) continue;
+    const text = (reply.text || "").toLowerCase();
+    for (const opt of tally) {
+      if (opt.name && text.includes(opt.name.toLowerCase())) opt.votes++;
+    }
+  }
+
+  const totalVotes = tally.reduce((sum, o) => sum + o.votes, 0);
+  contentStats.activeBacklogPoll = null; // resolve regardless — don't keep re-checking this poll forever
+
+  if (totalVotes === 0) {
+    console.log("🗳️  Poll window closed with no votes — no winner announced");
+    return null;
+  }
+
+  tally.sort((a, b) => b.votes - a.votes);
+  const winner = tally[0];
+  console.log(`🗳️  Poll resolved — winner: "${winner.name}" (${winner.votes}/${totalVotes} votes)`);
+  contentStats.pollWinnerAppid = winner.appid;
+  return { winner, totalVotes };
+}
+
 async function generateContent(type, context = {}, contentStats = null) {
   const recentTexts = contentStats ? getRecentPostTexts(contentStats, type) : [];
   const avoidRepeatBlock = recentTexts.length
@@ -240,12 +460,15 @@ async function generateContent(type, context = {}, contentStats = null) {
     cs2: `You are Dexterity (@dexteritycs.bsky.social), a CS2 player and Twitch streamer.
 Current status: ${PLAYER_CONTEXT.cs2.rank} rank${PLAYER_CONTEXT.cs2.rating ? `, ${PLAYER_CONTEXT.cs2.rating} Premier rating` : ""}.
 Currently focusing on: ${PLAYER_CONTEXT.cs2.focus}.
+${context.playtimeHours ? `Real total CS2 playtime on record: ${context.playtimeHours} hours. Use this naturally if it fits — a real number like this lands better than a vague claim.` : ""}
 
 Write a genuine, conversational Bluesky post about CS2. Could be:
 - Something you're working on improving (callouts, positioning, utility)
 - A thought about the Premier grind or ranked experience
 - A tip or observation from recent gameplay
 - Something relatable to players around your rank
+
+The post MUST end with a specific, answerable question that invites a real reply — not a generic "thoughts?" or "anyone else?". Ask something a CS2 player could actually answer from their own experience (e.g. a concrete choice, preference, or opinion), so people have something real to reply with.
 
 Sound like a real player, not a brand. Don't state a specific numeric rating unless one was given above — vague/relative language about rank progress is fine and safer than a number that might be out of date.
 Keep it under 280 chars. No excessive emojis.
@@ -262,6 +485,8 @@ Write a genuine, conversational Bluesky post about Overwatch 2. Could be:
 - A tip or frustration about Soldier, Bastion, or Junkrat
 - Something relatable to support/flex players climbing ranked
 
+The post MUST end with a specific, answerable question that invites a real reply — not a generic "thoughts?" or "anyone else?". Ask something an OW2 player could actually answer from their own experience (e.g. a concrete pick, matchup, or opinion), so people have something real to reply with.
+
 Sound like a real player. Don't state a specific rank tier unless one was clearly given above — vague/relative language about rank progress is fine and safer than a tier that might be out of date.
 Keep it under 280 chars. No excessive emojis.
 Include 1-2 hashtags like #Overwatch2 #OW2. Output only the post text.${avoidRepeatBlock}`,
@@ -276,9 +501,58 @@ Write a genuine, honest post sharing your thoughts on this specific game. Focus 
 - Whether the 100% grind was worth it
 - Something specific that fans of the genre would appreciate
 
+The post MUST end with a specific, answerable question — something inviting people to share their own take on this game or genre (e.g. asking what they'd rate the grind, or what similar game they'd compare it to), not a generic "anyone played this?".
+
 Be genuine and specific — not generic praise. Keep it under 280 chars.
 Include #IdleGames or #IncrementalGames and optionally the game name as a tag if it works.
-Output only the post text.`,
+Output only the post text.${avoidRepeatBlock}`,
+
+    backlog_poll: `You are Dexterity (@dexteritycs.bsky.social), a Twitch streamer with a backlog of started-but-unfinished Steam games.
+Three real games from your actual backlog to choose between: "${context.pollOptions?.[0]?.name}", "${context.pollOptions?.[1]?.name}", "${context.pollOptions?.[2]?.name}"
+
+Write a genuine post asking your followers to help you decide which of these three games to focus on 100%-completing next. Requirements:
+- Name all three games clearly so people can pick one
+- End with a direct, explicit ask for people to reply with their vote/pick — this is the whole point of the post
+- Sound like a real streamer asking real fans for input, not a generic poll bot
+- Keep it light and conversational
+
+Keep it under 280 chars. No excessive emojis.
+Include #IdleGames or a relevant hashtag if it fits naturally. Output only the post text.${avoidRepeatBlock}`,
+
+    progress_teaser: `You are Dexterity (@dexteritycs.bsky.social), a Twitch streamer grinding toward 100% completion on a game.
+Game: "${context.game}"
+Real progress: ${context.unlocked}/${context.total} achievements unlocked (${context.percent}%)
+
+Write a genuine mid-grind update post about where you're at with this specific game. Requirements:
+- Reference the real progress naturally (exact numbers are good, they're more credible than vague claims)
+- Convey genuine texture — what's left, what's been tricky, anticipation for finishing it
+- End with a specific, answerable question inviting people to share their own experience with this game or genre (not a generic "wish me luck" with no hook)
+- Sound like a real person mid-grind, not a status report
+
+Keep it under 280 chars. No excessive emojis.
+Include #IdleGames or a relevant hashtag if it fits naturally. Output only the post text.${avoidRepeatBlock}`,
+
+    quick_question: `You are Dexterity (@dexteritycs.bsky.social), a gaming streamer who plays CS2 and Overwatch 2.
+
+Write a short, fun either/or (or short-answer) question post for your gaming audience. It should be genuinely debatable — something any CS2 or Overwatch 2 player could answer in one word or a quick reply. Style examples only, write your own original question, don't reuse these: "AWP or rifle for your first buy?", "Kiriko or Moira when the enemy has a Widow?"
+
+Requirements:
+- Pick ONE specific genuine either/or (or short-answer) question about CS2 or Overwatch 2
+- Make it a real debate players would actually have opinions about
+- No fluff or preamble — mostly just the question, maybe one line of setup
+- Must end with the question itself, clearly
+
+Keep it under 200 chars. No excessive emojis. Include one relevant hashtag (#CS2 or #Overwatch2). Output only the post text.${avoidRepeatBlock}`,
+
+    poll_result_announcement: `You are Dexterity (@dexteritycs.bsky.social), a gaming streamer who just got real feedback from your community.
+Your followers voted on which backlog game to play next. Real result: "${context.winnerName}" won with ${context.winnerVotes} out of ${context.totalVotes} votes.
+
+Write a short, genuine post announcing the winner and that you're starting on it. Requirements:
+- Reference the real vote count naturally if it fits well (don't force it if the numbers are small and it'd read awkwardly)
+- Sound excited and grateful that people actually voted, not like a status report
+- Optionally tease that a progress update on this game is coming soon
+
+Keep it under 280 chars. No excessive emojis. Include a relevant hashtag if it fits naturally. Output only the post text.`,
 
     steam_completion: `You are Dexterity (@dexteritycs.bsky.social), a Twitch streamer who 100% completes games on Steam.
 You just 100%'d all achievements in: "${context.game}"
@@ -536,6 +810,10 @@ async function postDiscordNotification(type, text, context = {}, webhookOverride
       ow2:              { title: "🎮 OW2 Post Published",              color: 0xff8c1e },
       incremental:      { title: "🎮 Incremental Game Post Published", color: 0x00ff88 },
       steam_completion: { title: "🏆 Steam 100% Celebration Posted!",  color: 0xffd600 },
+      backlog_poll:     { title: "🗳️ Backlog Poll Posted",             color: 0x9b59b6 },
+      progress_teaser:  { title: "📊 Progress Teaser Posted",           color: 0x3498db },
+      quick_question:   { title: "❓ Quick Question Posted",           color: 0x2ecc71 },
+      poll_result_announcement: { title: "🏁 Poll Result Announced",   color: 0x9b59b6 },
     };
     const cfg = configs[type] || { title: "📝 Content Posted", color: 0x00e5ff };
     const url = new URL(webhookUrl);
@@ -715,15 +993,15 @@ function adjustContentWeights(contentStats) {
   const eng = contentStats.typeEngagement;
   if (!eng) return;
 
-  const types = ["cs2", "ow2", "incremental"];
+  const types = ["cs2", "ow2", "incremental", "backlog_poll", "progress_teaser", "quick_question"];
   const scores = {};
 
   for (const type of types) {
     const data = eng[type] || { likes: 0, reposts: 0, posts: 0 };
     if (data.posts < 10) {
-      // Not enough data yet — keep default weight. Raised from 3 to 10:
-      // with only 3 posts, one lucky like can swing the weight hard.
-      scores[type] = contentStats.typeWeights?.[type] || (type === "cs2" ? 3 : 2);
+      // Not enough data yet — keep current/default weight. Raised from 3 to 10:
+      // with only a few posts, one lucky like can swing the weight hard.
+      scores[type] = contentStats.typeWeights?.[type] ?? DEFAULT_WEIGHTS[type] ?? 1;
       continue;
     }
     // Score = (likes + reposts * 2) per post — reposts weighted higher
@@ -743,7 +1021,7 @@ function adjustContentWeights(contentStats) {
 
   const changed = JSON.stringify(newWeights) !== JSON.stringify(contentStats.typeWeights);
   if (changed) {
-    console.log(`⚖️  Adjusted content weights: CS2=${newWeights.cs2} OW2=${newWeights.ow2} Incremental=${newWeights.incremental}`);
+    console.log(`⚖️  Adjusted content weights: CS2=${newWeights.cs2} OW2=${newWeights.ow2} Incremental=${newWeights.incremental} BacklogPoll=${newWeights.backlog_poll} ProgressTeaser=${newWeights.progress_teaser} QuickQuestion=${newWeights.quick_question}`);
     contentStats.typeWeights = newWeights;
 
     if (DISCORD_WEBHOOK_URL) {
@@ -758,9 +1036,12 @@ function adjustContentWeights(contentStats) {
           title: "⚖️ Content Rotation Weights Adjusted",
           color: 0xff8c1e,
           fields: [
-            { name: "🎮 CS2",         value: `${newWeights.cs2}x`,         inline: true },
-            { name: "🏥 OW2",         value: `${newWeights.ow2}x`,         inline: true },
-            { name: "🎲 Incremental", value: `${newWeights.incremental}x`, inline: true },
+            { name: "🎮 CS2",             value: `${newWeights.cs2}x`,             inline: true },
+            { name: "🏥 OW2",             value: `${newWeights.ow2}x`,             inline: true },
+            { name: "🎲 Incremental",     value: `${newWeights.incremental}x`,     inline: true },
+            { name: "🗳️ Backlog Poll",    value: `${newWeights.backlog_poll}x`,    inline: true },
+            { name: "📊 Progress Teaser", value: `${newWeights.progress_teaser}x`, inline: true },
+            { name: "❓ Quick Question",  value: `${newWeights.quick_question}x`,  inline: true },
           ],
           description: "Weights auto-adjusted based on post engagement over last 10+ posts.",
           footer: { text: `dexterityCS Content Bot` },
@@ -883,6 +1164,34 @@ async function run() {
   if (!steamCheckOnly) {
     await checkPostEngagement(token, did, contentStats);
     adjustContentWeights(contentStats);
+    await checkAndReplyToOwnComments(token, did, contentStats);
+
+    const pollResult = await resolvePollIfReady(token, did, contentStats);
+    if (pollResult) {
+      const announceText = await generateContent("poll_result_announcement", {
+        winnerName:  pollResult.winner.name,
+        winnerVotes: pollResult.winner.votes,
+        totalVotes:  pollResult.totalVotes,
+      }, contentStats);
+      if (announceText) {
+        const announceResult = await postToBluesky(announceText, token, did);
+        await postDiscordNotification("poll_result_announcement", announceText, { game: pollResult.winner.name });
+        if (!contentStats.sentPosts) contentStats.sentPosts = [];
+        contentStats.sentPosts.push({
+          uri:          announceResult?.uri || null,
+          cid:          announceResult?.cid || null,
+          type:         "poll_result_announcement",
+          text:         safeTruncate(announceText, 200),
+          sentAt:       new Date().toISOString(),
+          lastLikes:    0,
+          lastReposts:  0,
+          lastReplies:  0,
+          notified:     false,
+          finalChecked: false,
+        });
+        contentStats.totalPosts = (contentStats.totalPosts || 0) + 1;
+      }
+    }
   }
 
   // ── Step 1: Check Steam for new 100% completions ─────────
@@ -959,6 +1268,15 @@ async function run() {
   console.log(`📝 Posting ${type} content (rotation index ${contentStats.rotationIndex}, weights: CS2=${contentStats.typeWeights?.cs2 || 3} OW2=${contentStats.typeWeights?.ow2 || 2} Inc=${contentStats.typeWeights?.incremental || 2})`);
 
   let context = {};
+  const CS2_APPID = "730";
+  if (type === "cs2") {
+    const cs2Entry = (contentStats.gameLibrary || []).find(g => String(g.appid) === CS2_APPID);
+    if (cs2Entry?.playtime) {
+      context.playtimeHours = Math.round(cs2Entry.playtime / 60);
+      console.log(`🕹️  Real CS2 playtime: ${context.playtimeHours}h`);
+    }
+  }
+
   if (type === "incremental") {
     if (INCREMENTAL_GAMES.length === 0) {
       console.warn("⚠️  No incremental games loaded — skipping incremental post this run");
@@ -971,6 +1289,58 @@ async function run() {
     const pool = available.length > 0 ? available : INCREMENTAL_GAMES;
     context.game = pool[Math.floor(Math.random() * pool.length)];
     console.log(`🎮 Incremental game: "${context.game}"`);
+  }
+
+  if (type === "backlog_poll") {
+    const candidates = getBacklogCandidates(contentStats);
+    if (candidates.length < 3) {
+      console.warn(`⚠️  Only ${candidates.length} backlog candidate(s) available (need 3) — skipping backlog poll this run`);
+      return;
+    }
+    // Pick 3 distinct random candidates — keep the full objects (appid+name),
+    // not just names, so we can tally votes against them later
+    const shuffled = [...candidates].sort(() => Math.random() - 0.5);
+    context.pollOptions = shuffled.slice(0, 3);
+    console.log(`🗳️  Backlog poll options: ${context.pollOptions.map(o => o.name).join(", ")}`);
+  }
+
+  if (type === "progress_teaser") {
+    if (!STEAM_API_KEY) {
+      console.warn("⚠️  No STEAM_API_KEY — skipping progress teaser this run");
+      return;
+    }
+    let candidates = getBacklogCandidates(contentStats)
+      .filter(g => String(g.appid) !== String(contentStats.lastProgressTeaseAppid))
+      .sort((a, b) => (b.rtime_last_played || 0) - (a.rtime_last_played || 0));
+
+    // If a backlog poll recently picked a winner, tease that one first
+    if (contentStats.pollWinnerAppid) {
+      const idx = candidates.findIndex(g => String(g.appid) === String(contentStats.pollWinnerAppid));
+      if (idx > 0) {
+        const [winnerGame] = candidates.splice(idx, 1);
+        candidates.unshift(winnerGame);
+      }
+    }
+
+    if (candidates.length === 0) {
+      console.warn("⚠️  No progress teaser candidates available — skipping this run");
+      return;
+    }
+    const pick = candidates[0];
+    const progress = await fetchAchievementProgress(pick.appid);
+    if (!progress || progress.unlocked === 0 || progress.unlocked >= progress.total) {
+      console.warn(`⚠️  No usable partial progress for "${pick.name}" — skipping progress teaser this run`);
+      return;
+    }
+    context.game    = pick.name;
+    context.unlocked = progress.unlocked;
+    context.total     = progress.total;
+    context.percent   = Math.round((progress.unlocked / progress.total) * 100);
+    contentStats.lastProgressTeaseAppid = pick.appid;
+    if (String(pick.appid) === String(contentStats.pollWinnerAppid)) {
+      contentStats.pollWinnerAppid = null; // one-time nudge consumed
+    }
+    console.log(`📊 Progress teaser: "${pick.name}" — ${progress.unlocked}/${progress.total} (${context.percent}%)`);
   }
 
   const postText = await generateContent(type, context, contentStats);
@@ -986,6 +1356,7 @@ async function run() {
   if (!contentStats.sentPosts) contentStats.sentPosts = [];
   contentStats.sentPosts.push({
     uri:          postResult?.uri || null,
+    cid:          postResult?.cid || null,
     type,
     text:         safeTruncate(postText, 200),
     sentAt:       new Date().toISOString(),
@@ -996,8 +1367,21 @@ async function run() {
     finalChecked: false,
   });
 
+  // If this was a backlog poll, remember it so we can tally votes and
+  // announce a winner once the resolution window passes
+  if (type === "backlog_poll" && postResult?.uri && postResult?.cid) {
+    contentStats.activeBacklogPoll = {
+      uri:      postResult.uri,
+      cid:      postResult.cid,
+      options:  context.pollOptions,
+      postedAt: new Date().toISOString(),
+    };
+  }
+
+
   // Track post count per type for weight adjustment
-  if (!contentStats.typeEngagement) contentStats.typeEngagement = { cs2: { likes: 0, reposts: 0, posts: 0 }, ow2: { likes: 0, reposts: 0, posts: 0 }, incremental: { likes: 0, reposts: 0, posts: 0 } };
+  if (!contentStats.typeEngagement) contentStats.typeEngagement = { cs2: { likes: 0, reposts: 0, posts: 0 }, ow2: { likes: 0, reposts: 0, posts: 0 }, incremental: { likes: 0, reposts: 0, posts: 0 }, backlog_poll: { likes: 0, reposts: 0, posts: 0 }, progress_teaser: { likes: 0, reposts: 0, posts: 0 }, quick_question: { likes: 0, reposts: 0, posts: 0 } };
+  if (!contentStats.typeEngagement[type]) contentStats.typeEngagement[type] = { likes: 0, reposts: 0, posts: 0 };
   if (contentStats.typeEngagement[type]) contentStats.typeEngagement[type].posts++;
 
   // Update stats
