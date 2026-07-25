@@ -1,0 +1,31 @@
+name: Analyze Persona Engagement
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_replies:
+        description: "How many recent tagged replies to analyze"
+        required: true
+        default: "200"
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run persona engagement analysis
+        env:
+          BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
+          BLUESKY_PASSWORD: ${{ secrets.BLUESKY_PASSWORD }}
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GIST_ID: ${{ secrets.GIST_ID }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          MAX_REPLIES: ${{ inputs.max_replies }}
+        run: node analyze-persona-engagement.js
