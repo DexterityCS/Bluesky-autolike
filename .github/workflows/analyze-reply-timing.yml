@@ -1,0 +1,34 @@
+name: Analyze Reply Timing
+
+on:
+  workflow_dispatch:
+    inputs:
+      timezone:
+        description: "IANA timezone for the analysis"
+        required: true
+        default: "America/Chicago"
+      max_replies:
+        description: "How many recent replies to analyze"
+        required: true
+        default: "150"
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run reply timing analysis
+        env:
+          BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
+          BLUESKY_PASSWORD: ${{ secrets.BLUESKY_PASSWORD }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TIMEZONE: ${{ inputs.timezone }}
+          MAX_REPLIES: ${{ inputs.max_replies }}
+        run: node analyze-reply-timing.js
