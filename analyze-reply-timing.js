@@ -105,11 +105,24 @@ function buildBarChart(counts, maxWidth = 20, decimals = 0) {
   }).join("\n");
 }
 
-async function postToDiscord(volumeByHour, avgEngagementByHour, totalReplies) {
+function median(values) {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+async function postToDiscord(volumeByHour, avgEngagementByHour, medianEngagementByHour, maxEngagementByHour, topReplies, totalReplies) {
   if (!DISCORD_WEBHOOK_URL) return;
   try {
     const volumeChart = buildBarChart(volumeByHour, 20, 0);
-    const avgChart    = buildBarChart(avgEngagementByHour, 20, 2);
+    const avgChart     = buildBarChart(avgEngagementByHour, 20, 2);
+    const medianChart  = buildBarChart(medianEngagementByHour, 20, 2);
+    const maxChart     = buildBarChart(maxEngagementByHour, 20, 0);
+
+    const topRepliesText = topReplies.length
+      ? topReplies.map((r, i) => `${i + 1}. **${r.hour}:00** — ${r.engagement} engagement — "${r.text}"`).join("\n")
+      : "No replies found";
 
     const url = new URL(DISCORD_WEBHOOK_URL);
     await request({
@@ -123,9 +136,12 @@ async function postToDiscord(volumeByHour, avgEngagementByHour, totalReplies) {
         color: 0xff8c1e,
         fields: [
           { name: `📨 Replies sent per hour (${totalReplies} total, ${TIMEZONE})`, value: `\`\`\`\n${volumeChart}\n\`\`\`` },
-          { name: `⭐ Avg engagement per reply, by hour sent (likes+reposts+replies)`, value: `\`\`\`\n${avgChart}\n\`\`\`` },
+          { name: `⭐ Average engagement per reply, by hour`, value: `\`\`\`\n${avgChart}\n\`\`\`` },
+          { name: `📐 Median engagement per reply, by hour (less sensitive to outliers)`, value: `\`\`\`\n${medianChart}\n\`\`\`` },
+          { name: `🚀 Max single-reply engagement, by hour`, value: `\`\`\`\n${maxChart}\n\`\`\`` },
+          { name: `🔝 Top 5 individual replies (check if a spike hour is really just one of these)`, value: topRepliesText },
         ],
-        footer: { text: `The second chart is what matters — high bars there mean replies sent at that hour land well with strangers.` },
+        footer: { text: `If average is high but median is low for an hour, that hour's average is being carried by one or two outlier replies — not a real pattern.` },
       }]
     }));
     console.log("📨 Reply timing analysis posted to Discord");
@@ -151,8 +167,9 @@ async function main() {
     return;
   }
 
-  const volumeByHour     = new Array(24).fill(0);
-  const engagementByHour = new Array(24).fill(0);
+  const volumeByHour   = new Array(24).fill(0);
+  const valuesByHour   = Array.from({ length: 24 }, () => []);
+  const allReplies     = [];
 
   for (const reply of replies) {
     const sentAt = reply.record?.createdAt || reply.indexedAt;
@@ -160,19 +177,28 @@ async function main() {
     const hour = localHour(sentAt, TIMEZONE);
     const engagement = (reply.likeCount || 0) + (reply.repostCount || 0) + (reply.replyCount || 0);
     volumeByHour[hour]++;
-    engagementByHour[hour] += engagement;
+    valuesByHour[hour].push(engagement);
+    allReplies.push({ hour, engagement, text: (reply.record?.text || "").slice(0, 80) });
   }
 
-  const avgEngagementByHour = engagementByHour.map((sum, hour) =>
-    volumeByHour[hour] > 0 ? sum / volumeByHour[hour] : 0
-  );
+  const avgEngagementByHour    = valuesByHour.map(v => v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0);
+  const medianEngagementByHour = valuesByHour.map(v => median(v));
+  const maxEngagementByHour    = valuesByHour.map(v => v.length ? Math.max(...v) : 0);
+
+  const topReplies = [...allReplies].sort((a, b) => b.engagement - a.engagement).slice(0, 5);
 
   console.log(`\n📨 Replies sent per hour (${TIMEZONE}):`);
   console.log(buildBarChart(volumeByHour, 20, 0));
-  console.log(`\n⭐ Avg engagement per reply, by hour sent:`);
+  console.log(`\n⭐ Average engagement per reply, by hour:`);
   console.log(buildBarChart(avgEngagementByHour, 20, 2));
+  console.log(`\n📐 Median engagement per reply, by hour:`);
+  console.log(buildBarChart(medianEngagementByHour, 20, 2));
+  console.log(`\n🚀 Max single-reply engagement, by hour:`);
+  console.log(buildBarChart(maxEngagementByHour, 20, 0));
+  console.log(`\n🔝 Top 5 individual replies:`);
+  topReplies.forEach((r, i) => console.log(`   ${i + 1}. ${r.hour}:00 — ${r.engagement} engagement — "${r.text}"`));
 
-  await postToDiscord(volumeByHour, avgEngagementByHour, replies.length);
+  await postToDiscord(volumeByHour, avgEngagementByHour, medianEngagementByHour, maxEngagementByHour, topReplies, replies.length);
 }
 
 main().catch(err => {
