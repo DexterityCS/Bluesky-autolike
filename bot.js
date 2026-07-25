@@ -441,23 +441,40 @@ function normalizeLeet(text) {
   return text.split("").map(c => map[c] || c).join("");
 }
 
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Word-boundary match — plain .includes() let short stems like "fur" match
+// inside unrelated words ("future", "furniture"), and "rally" match inside
+// "morally"/"virally". \b anchors to the transition between word and
+// non-word characters, so the term has to appear as a whole word.
+function wordBoundaryMatch(text, term) {
+  if (!term) return false;
+  try {
+    return new RegExp(`\\b${escapeRegex(term)}\\b`, "i").test(text);
+  } catch {
+    return text.toLowerCase().includes(term.toLowerCase()); // fallback if term breaks the regex
+  }
+}
+
 // ── Smart filter check — stems + exact + leet ─────────────
 function containsFilteredTag(text, tagList) {
   const lower      = text.toLowerCase();
   const normalized = normalizeLeet(lower);
-  return tagList.some(tag => lower.includes(tag) || normalized.includes(tag));
+  return tagList.some(tag => wordBoundaryMatch(lower, tag) || wordBoundaryMatch(normalized, tag));
 }
 
 function containsStem(text, stems) {
   const lower      = text.toLowerCase();
   const normalized = normalizeLeet(lower);
-  return stems.some(stem => lower.includes(stem) || normalized.includes(stem));
+  return stems.some(stem => wordBoundaryMatch(lower, stem) || wordBoundaryMatch(normalized, stem));
 }
 
 function findFilteredTag(text, tagList) {
   const lower      = text.toLowerCase();
   const normalized = normalizeLeet(lower);
-  return tagList.find(tag => lower.includes(tag) || normalized.includes(tag)) || null;
+  return tagList.find(tag => wordBoundaryMatch(lower, tag) || wordBoundaryMatch(normalized, tag)) || null;
 }
 
 function isFilteredContent(text) {
