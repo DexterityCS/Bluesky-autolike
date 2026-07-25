@@ -2,8 +2,8 @@ name: Content Bot
 
 on:
   schedule:
-    - cron: '0 23 * * *'   # 6pm CDT — first post
-    - cron: '0 3 * * *'    # 10pm CDT — second post
+    - cron: '0 13 * * *'   # 6pm CDT — first post
+    - cron: '0 18 * * *'    # 10pm CDT — second post
   workflow_dispatch:
 
 jobs:
