@@ -2,7 +2,7 @@ name: Steam Completion Check
 
 on:
   schedule:
-    - cron: '0 5,11,17,23 * * *'
+    - cron: '0 1,11,15,20 * * *'
   workflow_dispatch:
 
 jobs:
