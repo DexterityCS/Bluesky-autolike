@@ -166,6 +166,8 @@ function loadStats(gist = null) {
     filterHitLog: [],
     replyEngagement: { sent: 0, gotLiked: 0, gotReplied: 0 },
     replyPersonaStats: {},
+    replyPersonaEngagementHistory: {},
+    personaWeights: {},
     replyPersonaGameStats: {},
     milestonesCelebrated: [],
     lastWeeklySummary: null,
@@ -1530,6 +1532,7 @@ async function checkReplyEngagement(did, token, stats) {
   if (!stats.sentReplies || !stats.sentReplies.length) return;
   if (!stats.replyEngagement) stats.replyEngagement = { sent: 0, gotLiked: 0, gotReplied: 0 };
   if (!stats.replyPersonaStats) stats.replyPersonaStats = {};
+  if (!stats.replyPersonaEngagementHistory) stats.replyPersonaEngagementHistory = {};
 
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 7);
@@ -1560,6 +1563,21 @@ async function checkReplyEngagement(did, token, stats) {
           if (persona && stats.replyPersonaStats[persona]) stats.replyPersonaStats[persona].gotReplied = (stats.replyPersonaStats[persona].gotReplied || 0) + 1;
           if (pgKey && stats.replyPersonaGameStats?.[pgKey]) stats.replyPersonaGameStats[pgKey].gotReplied = (stats.replyPersonaGameStats[pgKey].gotReplied || 0) + 1;
         }
+
+        // Record real engagement magnitude per persona (not just yes/no) so we
+        // can track trend over time and detect when a persona is cooling off
+        if (persona) {
+          if (!stats.replyPersonaEngagementHistory[persona]) stats.replyPersonaEngagementHistory[persona] = [];
+          stats.replyPersonaEngagementHistory[persona].push({
+            value: scorePost(post),
+            at: new Date().toISOString(),
+          });
+          // Keep a rolling window — enough to see a trend without growing forever
+          if (stats.replyPersonaEngagementHistory[persona].length > 40) {
+            stats.replyPersonaEngagementHistory[persona] = stats.replyPersonaEngagementHistory[persona].slice(-40);
+          }
+        }
+
         reply.checkedEngagement = true;
       }
     } catch {}
@@ -1574,6 +1592,66 @@ async function checkReplyEngagement(did, token, stats) {
       .join(", ");
     if (personaSummary) console.log(`   🎭 Persona breakdown: ${personaSummary}`);
   }
+}
+
+// ── Adaptive persona weighting — find the best persona, and back off one that's cooling off ──
+const PERSONA_MIN_SAMPLES     = 8;   // need at least this many scored replies before trusting a trend
+const PERSONA_TREND_WINDOW    = 10;  // compare the last N vs the N before that
+const PERSONA_DECLINE_RATIO   = 0.5; // recent avg dropping below 50% of prior avg = "cooling off"
+const PERSONA_COOLDOWN_WEIGHT = 0.5; // reduced (not zero) weight for a cooling persona — still gets occasional tries
+
+function adjustPersonaWeights(stats) {
+  const history = stats.replyPersonaEngagementHistory || {};
+  const weights = {};
+
+  for (const persona of REPLY_PERSONAS) {
+    const values = (history[persona] || []).map(h => h.value);
+
+    if (values.length < PERSONA_MIN_SAMPLES) {
+      // Not enough data yet — equal share, let it accumulate a track record
+      weights[persona] = 1;
+      continue;
+    }
+
+    const recentWindow = values.slice(-PERSONA_TREND_WINDOW);
+    const priorWindow   = values.slice(-PERSONA_TREND_WINDOW * 2, -PERSONA_TREND_WINDOW);
+    const avg = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+
+    const recentAvg = avg(recentWindow);
+    const overallAvg = avg(values);
+
+    if (priorWindow.length >= PERSONA_MIN_SAMPLES && priorWindow.some(v => v > 0)) {
+      const priorAvg = avg(priorWindow);
+      if (priorAvg > 0 && recentAvg < priorAvg * PERSONA_DECLINE_RATIO) {
+        // This persona was doing fine, then cooled off — back off its weight
+        // rather than cutting it entirely, so it can recover if it was a blip
+        weights[persona] = PERSONA_COOLDOWN_WEIGHT;
+        console.log(`   🧊 Persona "${persona}" cooling off — recent avg ${recentAvg.toFixed(2)} vs prior ${priorAvg.toFixed(2)}, reducing weight`);
+        continue;
+      }
+    }
+
+    // Otherwise weight by overall performance, with a floor so nothing gets fully starved
+    weights[persona] = Math.max(0.2, overallAvg);
+  }
+
+  const changed = JSON.stringify(weights) !== JSON.stringify(stats.personaWeights);
+  stats.personaWeights = weights;
+  if (changed) {
+    console.log(`   🎭 Persona weights: ${Object.entries(weights).map(([p, w]) => `${p}=${w.toFixed(2)}`).join(", ")}`);
+  }
+}
+
+function pickWeightedPersona(weights) {
+  const entries = Object.entries(weights);
+  const total = entries.reduce((sum, [, w]) => sum + w, 0);
+  if (total <= 0) return entries[Math.floor(Math.random() * entries.length)][0];
+  let r = Math.random() * total;
+  for (const [persona, w] of entries) {
+    if (r < w) return persona;
+    r -= w;
+  }
+  return entries[entries.length - 1][0];
 }
 
 // ── English detection ──────────────────────────────────────
@@ -1639,8 +1717,13 @@ function shouldRunUnfollows(stats) {
 }
 
 function getReplyPersona(stats) {
-  const idx = (stats.totalReplies || 0) % REPLY_PERSONAS.length;
-  return REPLY_PERSONAS[idx];
+  const weights = stats.personaWeights;
+  if (!weights || REPLY_PERSONAS.some(p => !(p in weights))) {
+    // Weights not computed yet (e.g. first runs) — plain round-robin until they are
+    const idx = (stats.totalReplies || 0) % REPLY_PERSONAS.length;
+    return REPLY_PERSONAS[idx];
+  }
+  return pickWeightedPersona(weights);
 }
 
 const WHITELIST_PATH = "data/whitelist.json";
@@ -2014,6 +2097,7 @@ async function run() {
   if (netFollowers !== 0) console.log(`👥 Net followers since last run: ${netFollowers >= 0 ? "+" : ""}${netFollowers}`);
 
   await checkReplyEngagement(did, token, stats);
+  adjustPersonaWeights(stats);
   await checkAndPostMilestones(followerCount, stats, token, did);
   await checkAndPostWeeklySummary(stats, token, did, followerCount);
   await checkAndPostMonthlySummary(stats, followerCount);
