@@ -119,7 +119,7 @@ function buildBarChart(labeledValues, maxWidth = 20, decimals = 2) {
   }).join("\n");
 }
 
-async function postToDiscord(personaData, topReplies) {
+async function postToDiscord(personaData, personaGameData, topReplies) {
   if (!DISCORD_WEBHOOK_URL) return;
   try {
     const avgChart = buildBarChart(
@@ -132,8 +132,13 @@ async function postToDiscord(personaData, topReplies) {
       .map(([p, d]) => `**${p}**: ${d.count} replies checked`)
       .join("\n");
     const topRepliesText = topReplies.length
-      ? topReplies.map((r, i) => `${i + 1}. **${r.persona}** — ${r.engagement} engagement — "${r.text}"`).join("\n")
+      ? topReplies.map((r, i) => `${i + 1}. **${r.persona}${r.game ? `/${r.game}` : ""}** — ${r.engagement} engagement — "${r.text}"`).join("\n")
       : "No replies found";
+
+    const pgEntries = Object.entries(personaGameData).sort((a, b) => b[1].avg - a[1].avg);
+    const personaGameText = pgEntries.length
+      ? pgEntries.map(([pgKey, d]) => `**${pgKey}**: avg ${d.avg.toFixed(2)}, median ${d.median.toFixed(2)} (${d.count} replies)`).join("\n")
+      : "Not enough samples yet for any persona/game combo (need 4+ each)";
 
     const url = new URL(DISCORD_WEBHOOK_URL);
     await request({
@@ -149,9 +154,10 @@ async function postToDiscord(personaData, topReplies) {
           { name: "📋 Sample sizes", value: countsText },
           { name: "⭐ Average engagement per reply, by persona", value: `\`\`\`\n${avgChart}\n\`\`\`` },
           { name: "📐 Median engagement per reply, by persona (less sensitive to outliers)", value: `\`\`\`\n${medianChart}\n\`\`\`` },
+          { name: "🎮 Persona × game (which persona works best per game)", value: personaGameText },
           { name: "🔝 Top 5 individual replies", value: topRepliesText },
         ],
-        footer: { text: "If average is high but median is low for a persona, that persona's average is being carried by one or two outlier replies." },
+        footer: { text: "If average is high but median is low, that number is being carried by one or two outlier replies — check the persona/game combo isn't just one lucky hit." },
       }]
     }));
     console.log("📨 Persona analysis posted to Discord");
@@ -182,15 +188,24 @@ async function main() {
   const liveViews = await fetchLivePostViews(uris, token);
 
   const byPersona = {};
+  const byPersonaGame = {};
   const allScored = [];
 
   for (const reply of sentReplies) {
     const post = liveViews.get(reply.uri);
     if (!post) continue;
     const engagement = (post.likeCount || 0) + (post.repostCount || 0) * 2 + (post.replyCount || 0) * 3;
+
     if (!byPersona[reply.persona]) byPersona[reply.persona] = [];
     byPersona[reply.persona].push(engagement);
-    allScored.push({ persona: reply.persona, engagement, text: (post.record?.text || "").slice(0, 80) });
+
+    if (reply.gameContext) {
+      const pgKey = `${reply.persona}/${reply.gameContext}`;
+      if (!byPersonaGame[pgKey]) byPersonaGame[pgKey] = [];
+      byPersonaGame[pgKey].push(engagement);
+    }
+
+    allScored.push({ persona: reply.persona, game: reply.gameContext || null, engagement, text: (post.record?.text || "").slice(0, 80) });
   }
 
   const personaData = {};
@@ -203,16 +218,32 @@ async function main() {
     };
   }
 
+  // Only report persona/game combos with enough samples to mean anything
+  const MIN_PERSONA_GAME_SAMPLES = 4;
+  const personaGameData = {};
+  for (const [pgKey, values] of Object.entries(byPersonaGame)) {
+    if (values.length < MIN_PERSONA_GAME_SAMPLES) continue;
+    personaGameData[pgKey] = {
+      count:  values.length,
+      avg:    values.reduce((a, b) => a + b, 0) / values.length,
+      median: median(values),
+    };
+  }
+
   const topReplies = [...allScored].sort((a, b) => b.engagement - a.engagement).slice(0, 5);
 
   console.log("\n📊 Persona breakdown:");
   for (const [persona, d] of Object.entries(personaData)) {
     console.log(`   ${persona}: ${d.count} replies — avg ${d.avg.toFixed(2)}, median ${d.median.toFixed(2)}, max ${d.max}`);
   }
+  console.log("\n🎮 Persona × game breakdown (min 4 samples):");
+  for (const [pgKey, d] of Object.entries(personaGameData)) {
+    console.log(`   ${pgKey}: ${d.count} replies — avg ${d.avg.toFixed(2)}, median ${d.median.toFixed(2)}`);
+  }
   console.log("\n🔝 Top 5 individual replies:");
-  topReplies.forEach((r, i) => console.log(`   ${i + 1}. ${r.persona} — ${r.engagement} engagement — "${r.text}"`));
+  topReplies.forEach((r, i) => console.log(`   ${i + 1}. ${r.persona}${r.game ? `/${r.game}` : ""} — ${r.engagement} engagement — "${r.text}"`));
 
-  await postToDiscord(personaData, topReplies);
+  await postToDiscord(personaData, personaGameData, topReplies);
 }
 
 main().catch(err => {
