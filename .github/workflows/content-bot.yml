@@ -26,6 +26,6 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           GIST_TOKEN:          ${{ secrets.GIST_TOKEN }}
           GIST_ID:             ${{ secrets.GIST_ID }}
-          STEAM_API_KEY: ${{ secrets.STEAM_API_KEY }}
+          STEAM_API_KEY:       ${{ secrets.STEAM_API_KEY }}
           CONTENT_ONLY:        "true"
         run: node content_bot.js
