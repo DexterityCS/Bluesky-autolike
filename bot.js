@@ -596,7 +596,7 @@ async function isGamingRelevantAI(postText) {
   }
 }
 
-async function passesQualityFilters(authorDid, post, token, stats) {
+async function passesQualityFilters(authorDid, post, token, stats, preFetchedProfile = null) {
   const postDate = new Date(post.indexedAt || post.record?.createdAt || 0);
   const postAgeDays = (Date.now() - postDate) / 86400000;
   if (postAgeDays > MAX_POST_AGE_DAYS) {
@@ -604,7 +604,7 @@ async function passesQualityFilters(authorDid, post, token, stats) {
     return { pass: false, reason: `post too old (${Math.floor(postAgeDays)}d)` };
   }
 
-  const profile = await getProfile(authorDid, token);
+  const profile = preFetchedProfile || await getProfile(authorDid, token);
   if (!profile) return { pass: true, reason: "no profile" };
 
   const followerCount  = profile.followersCount || 0;
@@ -1291,6 +1291,23 @@ const HASHTAG_BLOCKLIST = new Set([
   "twitter", "bluesky", "fediverse", "mastodon",
 ]);
 
+// Discovery-specific relevance check — deliberately narrower than GAMING_TERMS
+// above. GAMING_TERMS includes generic words (kill, ping, lag, clip, game)
+// that make sense for judging whether a POST is gaming content, but are far
+// too broad for judging whether a brand-new HASHTAG deserves to become a
+// permanent search term — "#pingpong" or "#clipart" would otherwise pass.
+// This list is restricted to your actual games plus jargon specific enough
+// to them that a substring match is unlikely to be a false positive, and
+// deliberately excludes other games (Valorant, Fortnite, COD, etc.) you
+// don't stream, so discovery doesn't dilute your rotation with them.
+const DISCOVERY_RELEVANT_TERMS = [
+  "cs2", "counterstrike", "counter-strike", "csgo", "premier", "faceit", "awp",
+  "apexlegends", "apex", "wraith", "pathfinder", "bloodhound",
+  "overwatch", "ow2",
+  "minecraft", "creeper", "redstone", "nether",
+  "terraria",
+];
+
 // ── Graduate high-performing candidate terms ──────────────────
 async function graduateCandidateTerms(stats) {
   const candidates = loadCandidateTerms();
@@ -1374,10 +1391,10 @@ async function discoverNewTerms(token, stats) {
         if (HASHTAG_BLOCKLIST.has(clean.slice(1))) continue;
 
         const tagWord = clean.slice(1);
-        const isGamingRelated = GAMING_TERMS.some(t => tagWord.includes(t) || t.includes(tagWord)) ||
-          ["cs2", "apex", "overwatch", "minecraft", "terraria", "valorant", "gaming",
-           "gamer", "fps", "esport", "streamer", "siege", "fortnite", "league",
-           "rocket", "halo", "cod", "battlefield", "steam", "indie"].some(g => tagWord.includes(g));
+        // Only the forward direction (does the hashtag contain a known,
+        // specific term) — the old reverse check ("does a known term contain
+        // the hashtag") let short/generic fragments slip through too easily.
+        const isGamingRelated = DISCOVERY_RELEVANT_TERMS.some(t => tagWord.includes(t));
 
         if (!isGamingRelated) continue;
         if (isFilteredContent(clean)) continue;
@@ -1711,6 +1728,45 @@ function scorePost(post) {
   const replies  = post.replyCount   || 0;
   const reposts  = post.repostCount  || 0;
   return (likes * SCORE_LIKE_WEIGHT) + (replies * SCORE_REPLY_WEIGHT) + (reposts * SCORE_REPOST_WEIGHT);
+}
+
+// ── Follower-count re-ranking — engaging with bigger accounts in your niche
+// means your reply gets seen by THEIR audience, not just your own. Search
+// results don't include follower counts, so getting this everywhere would
+// mean a profile fetch per candidate (expensive). Instead, only look ahead
+// at the top N candidates by existing engagement score, fetch their real
+// follower counts once, and re-rank just that slice — bounded cost, real effect
+// on who actually gets engaged with first each run (which is what matters,
+// since most runs never reach the back of a long candidate list anyway).
+const FOLLOWER_BOOST_LOOKAHEAD = 30;
+const FOLLOWER_BOOST_WEIGHT    = 5; // multiplier applied to log10(followers) — keeps huge accounts from totally dominating
+
+async function boostTopCandidatesByFollowers(sortedAuthors, token) {
+  const lookaheadCount = Math.min(FOLLOWER_BOOST_LOOKAHEAD, sortedAuthors.length);
+  const lookahead = sortedAuthors.slice(0, lookaheadCount);
+  const rest      = sortedAuthors.slice(lookaheadCount);
+
+  const profileCache = new Map();
+  const withFollowerScore = [];
+
+  for (const [authorDid, post] of lookahead) {
+    const profile = await getProfile(authorDid, token);
+    if (profile) profileCache.set(authorDid, profile);
+    const followerCount = profile?.followersCount || 0;
+    const followerBoost = Math.log10(Math.max(followerCount, 1)) * FOLLOWER_BOOST_WEIGHT;
+    withFollowerScore.push({ authorDid, post, combinedScore: scorePost(post) + followerBoost, followerCount });
+    await sleep(200);
+  }
+
+  withFollowerScore.sort((a, b) => b.combinedScore - a.combinedScore);
+
+  if (withFollowerScore.length > 0) {
+    const top3 = withFollowerScore.slice(0, 3).map(c => `${c.followerCount} followers`).join(", ");
+    console.log(`📈 Follower-boosted top candidates this run: ${top3}`);
+  }
+
+  const reordered = withFollowerScore.map(c => [c.authorDid, c.post]);
+  return { reordered: [...reordered, ...rest], profileCache };
 }
 
 async function getMutualNetwork(did, token) {
@@ -2190,6 +2246,8 @@ async function run() {
 
   console.log(`📊 ${filteredAuthors.length} authors after engagement filter (min score: ${MIN_ENGAGEMENT_SCORE})`);
 
+  const { reordered: rankedAuthors, profileCache } = await boostTopCandidatesByFollowers(filteredAuthors, token);
+
   const termWeights    = computeTermWeights(stats, SEARCH_TERMS);
   const likedThisRun   = new Set();
   const termLikes      = {};
@@ -2203,7 +2261,7 @@ async function run() {
   const currentPersona = getReplyPersona(stats);
   console.log(`💬 Reply persona this run: ${currentPersona}`);
 
-  for (const [authorDid, post] of filteredAuthors) {
+  for (const [authorDid, post] of rankedAuthors) {
     if (totalLikes + totalFollows >= actionsTarget) break;
 
     const uri = post.uri;
@@ -2216,7 +2274,7 @@ async function run() {
       continue;
     }
 
-    const { pass, reason } = await passesQualityFilters(authorDid, post, token, stats);
+    const { pass, reason } = await passesQualityFilters(authorDid, post, token, stats, profileCache.get(authorDid));
     if (!pass) {
       console.log(`   🚫 Skipped @${post.author?.handle} — ${reason}`);
       likedThisRun.add(authorDid);
