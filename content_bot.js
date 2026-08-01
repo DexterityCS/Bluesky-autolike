@@ -21,6 +21,17 @@ const STEAM_ID          = "76561198121481638";
 // Rank/rating can be overridden via env vars so you can update them
 // without touching code — just edit the repo variable/secret whenever
 // your rank changes. Falls back to the hardcoded defaults if unset.
+// ── Ken's actual writing voice — used to bias generated posts to sound like
+// him specifically, not a generic "gamer persona." Update this directly if
+// his style shifts; it's plain text, no code changes needed.
+const VOICE_STYLE = `Match this real writing voice as closely as possible:
+- Drop apostrophes in contractions (dont, im, ive, ill, didnt, youve, cant, wont)
+- Casual/inconsistent capitalization — dont sweat capitalizing "I" or sentence starts consistently
+- Minimal punctuation — comma splices instead of proper sentence breaks are fine and authentic
+- Terse and direct, even explaining something technical or opinionated — no hedging, no over-explaining
+- Never use exclamation points or emoji
+- Sound like real unpolished typing, not edited/cleaned-up writing`;
+
 const PLAYER_CONTEXT = {
   cs2: {
     rank: process.env.CS2_RANK || "Premier",
@@ -470,6 +481,8 @@ Write a genuine, conversational Bluesky post about CS2. Could be:
 
 The post MUST end with a specific, answerable question that invites a real reply — not a generic "thoughts?" or "anyone else?". Ask something a CS2 player could actually answer from their own experience (e.g. a concrete choice, preference, or opinion), so people have something real to reply with.
 
+Lead with a real opinion, not a neutral observation — a specific take (even a slightly critical or contrarian one, like "X map's callouts are actually broken" rather than "X map is fine") reads as more genuine and gets more real engagement than safe, agreeable commentary.
+
 Sound like a real player, not a brand. Don't state a specific numeric rating unless one was given above — vague/relative language about rank progress is fine and safer than a number that might be out of date.
 Keep it under 280 chars. No excessive emojis.
 Include 1-2 relevant hashtags like #CS2 #CounterStrike. Output only the post text.${avoidRepeatBlock}`,
@@ -487,6 +500,8 @@ Write a genuine, conversational Bluesky post about Overwatch 2. Could be:
 
 The post MUST end with a specific, answerable question that invites a real reply — not a generic "thoughts?" or "anyone else?". Ask something an OW2 player could actually answer from their own experience (e.g. a concrete pick, matchup, or opinion), so people have something real to reply with.
 
+Lead with a real opinion, not a neutral observation — a specific take (even a slightly critical or contrarian one) reads as more genuine and gets more real engagement than safe, agreeable commentary.
+
 Sound like a real player. Don't state a specific rank tier unless one was clearly given above — vague/relative language about rank progress is fine and safer than a tier that might be out of date.
 Keep it under 280 chars. No excessive emojis.
 Include 1-2 hashtags like #Overwatch2 #OW2. Output only the post text.${avoidRepeatBlock}`,
@@ -502,6 +517,8 @@ Write a genuine, honest post sharing your thoughts on this specific game. Focus 
 - Something specific that fans of the genre would appreciate
 
 The post MUST end with a specific, answerable question — something inviting people to share their own take on this game or genre (e.g. asking what they'd rate the grind, or what similar game they'd compare it to), not a generic "anyone played this?".
+
+Lead with a real opinion, not neutral praise — if part of the grind was actually annoying or overrated, say so. A specific take reads as more genuine and gets more real engagement than safe, agreeable commentary.
 
 Be genuine and specific — not generic praise. Keep it under 280 chars.
 Include #IdleGames or #IncrementalGames and optionally the game name as a tag if it works.
@@ -526,6 +543,7 @@ Real progress: ${context.unlocked}/${context.total} achievements unlocked (${con
 Write a genuine mid-grind update post about where you're at with this specific game. Requirements:
 - Reference the real progress naturally (exact numbers are good, they're more credible than vague claims)
 - Convey genuine texture — what's left, what's been tricky, anticipation for finishing it
+- Lead with an actual opinion about the grind (e.g. "this achievement is unfairly brutal" or "way easier than people say"), not a neutral status update — a real take reads more genuine and gets more real engagement
 - End with a specific, answerable question inviting people to share their own experience with this game or genre (not a generic "wish me luck" with no hook)
 - Sound like a real person mid-grind, not a status report
 
@@ -534,11 +552,11 @@ Include #IdleGames or a relevant hashtag if it fits naturally. Output only the p
 
     quick_question: `You are Dexterity (@dexteritycs.bsky.social), a gaming streamer who plays CS2 and Overwatch 2.
 
-Write a short, fun either/or (or short-answer) question post for your gaming audience. It should be genuinely debatable — something any CS2 or Overwatch 2 player could answer in one word or a quick reply. Style examples only, write your own original question, don't reuse these: "AWP or rifle for your first buy?", "Kiriko or Moira when the enemy has a Widow?"
+Write a short, fun either/or (or short-answer) question post for your gaming audience. It should be genuinely debatable — something any CS2 or Overwatch 2 player could answer in one word or a quick reply, ideally something people actually disagree about. Style examples only, write your own original question, don't reuse these: "AWP or rifle for your first buy?", "Kiriko or Moira when the enemy has a Widow?"
 
 Requirements:
 - Pick ONE specific genuine either/or (or short-answer) question about CS2 or Overwatch 2
-- Make it a real debate players would actually have opinions about
+- Make it a real debate players would actually have opinions about — if you add setup, give it a real stance ("X is criminally underrated") rather than neutral framing
 - No fluff or preamble — mostly just the question, maybe one line of setup
 - Must end with the question itself, clearly
 
@@ -584,7 +602,7 @@ Under 280 chars. Output only the post text.`,
   }, JSON.stringify({
     model: "claude-sonnet-4-6",
     max_tokens: 300,
-    system: "You are a content writer for a gaming streamer. Output only the post text, nothing else. No quotes around the text.",
+    system: `You are a content writer for a gaming streamer. ${VOICE_STYLE}\n\nOutput only the post text, nothing else. No quotes around the text.`,
     messages: [{ role: "user", content: prompts[type] }],
   }));
 
