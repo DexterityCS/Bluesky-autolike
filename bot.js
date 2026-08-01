@@ -36,6 +36,18 @@ const SCORE_REPOST_WEIGHT  = 2;
 const MIN_ENGAGEMENT_SCORE = 0;
 const MUTUAL_NETWORK_BOOST = true;
 const REPLY_PERSONAS = ["hype", "analytical", "friendly"];
+
+// ── Ken's actual writing voice — used to bias generated replies to sound like
+// him specifically, not a generic "gamer persona." Update this directly if
+// his style shifts; it's plain text, no code changes needed.
+const VOICE_STYLE = `Match this real writing voice as closely as possible:
+- Drop apostrophes in contractions (dont, im, ive, ill, didnt, youve, cant, wont)
+- Casual/inconsistent capitalization — dont sweat capitalizing "I" or sentence starts consistently
+- Minimal punctuation — comma splices instead of proper sentence breaks are fine and authentic
+- Terse and direct, even explaining something technical or opinionated — no hedging, no over-explaining
+- Never use exclamation points or emoji
+- Sound like real unpolished typing, not edited/cleaned-up writing
+- IMPORTANT: You are NOT currently streaming and havent streamed in years — never reference streaming, being live, your stream, or Twitch as a current activity. You're a gamer and content creator posting on Bluesky, that's it.`;
 const PAUSE_PATH = "data/pause.json";
 
 const DEFAULT_TERMS = [
@@ -808,9 +820,9 @@ Post: "${safeTruncate(postText, 300)}"`
   }
 
   const personaInstructions = {
-    hype:       "Be enthusiastic and hyped up. Use energy but not cringe. Sound genuinely excited about the topic.",
-    analytical: "Be insightful and tactical. Offer a brief strategic take or observation about what they said.",
-    friendly:   "Be warm, conversational, and genuine. Sound like a real fellow gamer.",
+    hype:       "Be enthusiastic and hyped up. Use energy but not cringe. Take a real side — genuinely excited about something specific, not just generic hype. Sound like someone who actually cares, not a cheerleader with no opinion.",
+    analytical: "Be insightful and tactical. Give an actual take, not just a neutral observation — a real strategic opinion, a disagreement, a 'here's what I'd do differently.' Specific and a little opinionated beats safe and balanced.",
+    friendly:   "Be warm, conversational, and genuine. Still have a real reaction or opinion, not just agreement — sound like a real fellow gamer with their own perspective, not someone just being nice.",
   };
 
   const instruction = personaInstructions[persona] || personaInstructions.friendly;
@@ -838,7 +850,7 @@ Post: "${safeTruncate(postText, 300)}"`
   const body = JSON.stringify({
     model: "claude-sonnet-4-6",
     max_tokens: 150,
-    system: `You are Dexterity (@dexteritycs.bsky.social), a gamer and content creator who plays CS2, Apex Legends, Rainbow Six Siege, Overwatch, Minecraft, and Terraria. Write short, genuine, conversational replies to gaming posts. ${instruction} Sound like a real gamer — not a bot. Never use emojis excessively. Always reply in English only. Max 200 characters. Output only the reply text, nothing else.`,
+    system: `You are Dexterity (@dexteritycs.bsky.social), a gamer and content creator who plays CS2, Apex Legends, Rainbow Six Siege, Overwatch, Minecraft, and Terraria. Write short, genuine, conversational replies to gaming posts. ${instruction} Avoid safe, neutral restating of what they said — a real opinion (even a slightly critical or contrarian one) reads as more genuine and gets more engagement than agreeable-but-generic commentary.\n\n${VOICE_STYLE}\n\nAlways reply in English only. Max 200 characters. Output only the reply text, nothing else.`,
     messages: [{
       role: "user",
       content: `Reply to this ${gameContext} post by @${authorHandle}:\n\n"${postText}"${threadContext}\n\nWrite a short genuine reply as Dexterity. Keep it relevant to ${gameContext} and under 200 characters.`
@@ -1883,7 +1895,7 @@ async function checkAndPostMilestones(followerCount, stats, token, did) {
       if (ANTHROPIC_API_KEY) {
         const body = JSON.stringify({
           model: "claude-sonnet-4-6", max_tokens: 200,
-          system: "You are Dexterity (@dexteritycs.bsky.social), a CS2 streamer. Write a short genuine excited Bluesky post celebrating a follower milestone. Sound like a real streamer — grateful but not cringe. Include the milestone number. Max 250 chars. Output only the post text.",
+          system: `You are Dexterity (@dexteritycs.bsky.social), a CS2 player and content creator. Write a short genuine Bluesky post celebrating a follower milestone. Sound like a real person — grateful but not cringe. Include the milestone number. ${VOICE_STYLE} Max 250 chars. Output only the post text.`,
           messages: [{ role: "user", content: `Write a Bluesky post celebrating hitting ${milestone} followers. Keep it real and personal.` }]
         });
         const res = await request({
@@ -1922,7 +1934,7 @@ async function checkAndPostWeeklySummary(stats, token, did, followerCount) {
   if (ANTHROPIC_API_KEY) {
     const body = JSON.stringify({
       model: "claude-sonnet-4-6", max_tokens: 250,
-      system: "You are Dexterity (@dexteritycs.bsky.social), a CS2 streamer. Write a weekly stats recap post for Bluesky. Sound natural and conversational. Max 280 chars. Output only the post text.",
+      system: `You are Dexterity (@dexteritycs.bsky.social), a CS2 player and content creator. Write a weekly stats recap post for Bluesky. Sound natural and conversational. ${VOICE_STYLE} Max 280 chars. Output only the post text.`,
       messages: [{ role: "user", content: `Weekly Bluesky recap:\n- New followers: +${weeklyGain}\n- Total: ${followerCount}\n- Likes given: ${stats.totalLikes || 0}\n- Follow-back rate: ${fbRate}%\nInclude CS2/streaming hashtags.` }]
     });
     const res = await request({
